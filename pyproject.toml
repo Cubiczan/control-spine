@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "control-spine"
+version = "0.1.0"
+description = "CHP-aligned ICFR compliance spine: R0 gate, adversary, human lock, sealed evidence envelope."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Cubiczan", email = "sam@cubiczan.com" }]
+license = { text = "MIT" }
+keywords = ["chp", "icfr", "sox", "audit-trail", "evidence"]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
