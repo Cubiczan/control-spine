@@ -8,6 +8,10 @@ EXPLORING → ADVISORY → PROVISIONAL_LOCK → LOCKED, or HALT.
 
 An engine cannot countersign its own output. Open blocking findings cannot
 reach LOCKED. Empty population cannot pass R0.
+
+R0 Solvable/Scoped/Valid/Worth_it are evaluated via the published
+`consensus-hardening-protocol` package (`chp.evaluate_r0_gate`). ICFR-specific
+human gate, adversary challenges, and evidence sealing stay in this module.
 """
 
 from __future__ import annotations
@@ -18,6 +22,8 @@ from enum import Enum
 from hashlib import sha256
 import json
 from typing import Any, Mapping, Sequence
+
+from chp import evaluate_r0_gate
 
 
 SPINE_VERSION = "0.1.0"
@@ -49,6 +55,7 @@ class Finding:
 
 
 def canonical_hash(payload: Any) -> str:
+    """SHA-256 over canonical JSON (sorted keys, compact separators)."""
     blob = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":"))
     return sha256(blob.encode("utf-8")).hexdigest()
 
@@ -63,18 +70,20 @@ def evaluate_r0(
     owner_signoff: str,
     prepared_by: str,
 ) -> dict[str, str]:
-    """CHP R0: solvable, scoped, valid, worth_it — plus a human gate."""
-    return {
-        "Solvable": Verdict.PASS.value if population_count > 0 else Verdict.FATAL.value,
-        "Scoped": Verdict.PASS.value if control_id and threshold else Verdict.FATAL.value,
-        "Valid": Verdict.PASS.value if engine_id and inputs_hash else Verdict.FATAL.value,
-        "Worth_it": Verdict.PASS.value if control_id.startswith("ICFR-") else Verdict.FATAL.value,
-        "Human_gate": (
-            Verdict.PASS.value
-            if owner_signoff and owner_signoff.strip() != prepared_by.strip()
-            else Verdict.FATAL.value
-        ),
-    }
+    """CHP R0 via published package, plus ICFR human gate (owner ≠ preparer)."""
+    gate = evaluate_r0_gate(
+        solvable=population_count > 0,
+        scoped=bool(control_id and threshold),
+        valid=bool(engine_id and inputs_hash),
+        worth_it=control_id.startswith("ICFR-"),
+    )
+    results = dict(gate.results)
+    results["Human_gate"] = (
+        Verdict.PASS.value
+        if owner_signoff and owner_signoff.strip() != prepared_by.strip()
+        else Verdict.FATAL.value
+    )
+    return results
 
 
 def _adversary(

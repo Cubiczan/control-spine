@@ -11,7 +11,9 @@ requires-python = ">=3.10"
 authors = [{ name = "Cubiczan", email = "sam@cubiczan.com" }]
 license = { text = "MIT" }
 keywords = ["chp", "icfr", "sox", "audit-trail", "evidence"]
-dependencies = []
+dependencies = [
+  "consensus-hardening-protocol>=0.1.0",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
