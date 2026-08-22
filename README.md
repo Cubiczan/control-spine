@@ -7,6 +7,7 @@
 A material weakness is rarely a knowledge problem. It is a capacity-and-proof problem. Automation that produces an answer without a reviewable trail adds a new untestable control. The spine is the trail.
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![PyPI](https://img.shields.io/pypi/v/consensus-hardening-protocol)](https://pypi.org/project/consensus-hardening-protocol/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ## CHP dependency
@@ -38,6 +39,7 @@ The spine source of truth lives here. A vendored copy ships inside each engine s
 ## Quick start
 
 ```bash
+pip install consensus-hardening-protocol
 pip install -e ".[dev]"
 pytest -q
 ```
