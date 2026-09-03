@@ -27,6 +27,8 @@ See also the promoted example: [icohangar-ops/chp-examples](https://github.com/i
 
 Aligned to CHP session status and R0 via the published engine, not a full reimplementation of the protocol. Deterministic. No model in the gate.
 
+UiPath handoffs can enter here as evidence packs before they are allowed to become LOCKED.
+
 ## Engines on this spine
 
 `lease842` · `cuec-review` · `nexus-monitor` · `sbc-ledger` · `poc-revenue` · `combination-accounting`
