@@ -62,7 +62,13 @@ Every `compute` run emits a pack carrying:
   signoff swaps, severity downgrades) breaks `verify`.
 
 Breach findings resolve only with an approving signoff receipt naming the
-finding's subject. Lock lifecycle: `draft → awaiting_signoff → signed`.
+finding's subject. Warn-severity findings (`SOX-001`, `SOX-010`, `SOX-020`)
+do not require signoff under the family contract — only breach severity
+does. Programs whose audit methodology additionally requires management
+acknowledgment of below-significance failures can record approving receipts
+for those subjects too; the pack carries them and `verify` accepts packs
+signed beyond the mandatory minimum. Lock lifecycle: `draft →
+awaiting_signoff → signed`.
 Signing refuses while any finding is unresolved (crosswalk to the family
 lock progression: unresolved ≡ `HALT`, `signed` ≡ `LOCKED` — the only
 evidence-qualifying state). Signed packs are immutable: a correction is a
