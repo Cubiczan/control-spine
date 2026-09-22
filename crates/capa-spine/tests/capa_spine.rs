@@ -191,7 +191,7 @@ fn containment_overdue_is_a_breach() {
     // quality × low → breach severity → 24h containment window; opened
     // 2026-09-20, due 2026-09-21 — overdue as of 2026-09-22.
     let record = base_capa("CAPA-1");
-    let evaluations = evaluate(&[record.clone()], &config, as_of).unwrap();
+    let evaluations = evaluate(std::slice::from_ref(&record), &config, as_of).unwrap();
     assert!(has_rule(&evaluations[0], RULE_CONTAINMENT_OVERDUE));
     let finding = finding_of(&evaluations[0], RULE_CONTAINMENT_OVERDUE);
     assert_eq!(finding.severity, Severity::Breach);
