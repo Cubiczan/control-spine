@@ -1,0 +1,38 @@
+{
+  "transactions": [
+    {
+      "transaction_id": "T1",
+      "date": "2026-01-15",
+      "amount_cents": 30000000,
+      "kind": "sale",
+      "credits": [
+        { "rep_id": "rep-ana", "role": "ae", "priority": 1 },
+        { "rep_id": "rep-sam", "role": "se", "priority": 1 }
+      ]
+    },
+    {
+      "transaction_id": "T2",
+      "date": "2026-02-20",
+      "amount_cents": 20000000,
+      "kind": "sale",
+      "credits": [
+        { "rep_id": "rep-ana", "role": "ae", "priority": 1 },
+        { "rep_id": "rep-sam", "role": "se", "priority": 1 }
+      ]
+    },
+    {
+      "transaction_id": "T3",
+      "date": "2026-03-10",
+      "amount_cents": 5000000,
+      "kind": "return",
+      "original_transaction_id": "T2"
+    },
+    {
+      "transaction_id": "T4",
+      "date": "2026-05-02",
+      "amount_cents": 250000000,
+      "kind": "sale",
+      "credits": [{ "rep_id": "rep-ana", "role": "ae", "priority": 1 }]
+    }
+  ]
+}
