@@ -59,3 +59,11 @@ Data incidents follow an explicit lifecycle:
 ```text
 OPEN -> ACKNOWLEDGED -> REMEDIATED -> VERIFIED
 ```
+
+## Department engines (Rust)
+
+`crates/` is a Cargo workspace joining this Python package: one deterministic engine crate per department control function (payroll, access recertification, covenant testing, three-way match, and so on), plus `crates/spine` — the canonical governance crate every engine depends on by path. Vendored copies are forbidden.
+
+The spine crate carries the family contract: typed findings and severities, human signoff receipts, the `draft → awaiting_signoff → signed` lock lifecycle, four-eyes approval for privileged actions, and evidence packs that fail closed — `verify` recomputes SHA-256 provenance hashes from the canonical inputs and refuses any pack it cannot prove.
+
+Engines are pure: no clock, no network, no filesystem, and money in integer cents. Rule and factor tables shipped in engine crates are seed data, clearly labeled — not authoritative regulatory values. No benchmarks or compliance certifications are claimed in this repo.
