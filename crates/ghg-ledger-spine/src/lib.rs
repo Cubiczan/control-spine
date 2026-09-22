@@ -31,7 +31,7 @@ pub use spine;
 
 pub use engine::{
     compute_inventory, ledger_key, ledger_totals, mul_round_half_up, ComputeError, EmissionLine,
-    RestatementBlock, RestatementDelta,
+    RestatementBlock, RestatementDelta, MARKET_SCOPE2_DISCLOSURE,
 };
 pub use model::{
     ActivityInputs, ActivityRecord, DqTier, FactorRow, GhgConfig, Method, Scaled, Scope,

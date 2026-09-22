@@ -38,8 +38,11 @@ convenience. Concretely:
 - **Scope 2 dual method.** Location-based and market-based emissions are both
   computed and reported as separate lines (`scope2:location`,
   `scope2:market`). Market-based coverage (e.g. RECs) only offsets the
-  covered quantity. When both methods compute and diverge beyond a
-  configured basis-point threshold, a `GHG-SCOPE2-DIVERGENCE` warn finding is
+  covered quantity. Every market-based Scope 2 line carries an explicit
+  `disclosure` label in the pack stating the figure covers contractual
+  instruments only and excludes residual-mix factors. When both methods
+  compute and diverge beyond a configured basis-point threshold, a
+  `GHG-SCOPE2-DIVERGENCE` warn finding is
   emitted. A missing market factor blocks market-based reporting only —
   location-based still computes, the gap is explicit.
 - **Restatement-safe ledger.** Corrections are new packs that reference the
@@ -69,6 +72,12 @@ ghg-ledger-spine explain --pack pack.json
 ```
 
 Exit codes: `0` success, `1` refusal (verification or engine), `2` usage/IO.
+
+**The CLI is not a standalone compliance path to the signed lock.** The
+`compute`, `verify`, and `explain` commands only move and check bytes — they
+never advance the `draft → awaiting_signoff → signed` lock. Signoff and lock
+advancement happen at the library level, through the `spine` governance
+APIs; a pack that verifies is still an unsigned pack.
 
 ## Configuration (JSON, schema-checked)
 
@@ -111,4 +120,5 @@ drives the binary end to end.
   records and typed factor tables, not utility bills or invoices.
 - The market-based method models only quantity-level coverage (e.g.
   contractual instruments). It does not model residual-mix factors, guarantee
-  of origin registries, or market-boundary rules.
+  of origin registries, or market-boundary rules. The `disclosure` label on
+  market-based Scope 2 lines restates this limitation in-pack.
