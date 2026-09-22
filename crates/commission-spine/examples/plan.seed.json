@@ -1,0 +1,40 @@
+{
+  "plan_id": "seed-fy26",
+  "versions": [
+    {
+      "version": 1,
+      "effective_from": "2026-01-01",
+      "effective_to": "2026-03-31",
+      "quota_cents": 50000000,
+      "band_mode": "marginal",
+      "bands": [
+        { "up_to_ppm": 1000000, "rate_bps": 200 },
+        { "up_to_ppm": 2000000, "rate_bps": 350 },
+        { "up_to_ppm": null, "rate_bps": 500 }
+      ],
+      "windfall_cap_ppm": null,
+      "max_spread_bps": null,
+      "role_weights": [
+        { "role": "ae", "weight_bps": 7000 },
+        { "role": "se", "weight_bps": 3000 }
+      ]
+    },
+    {
+      "version": 2,
+      "effective_from": "2026-04-01",
+      "effective_to": null,
+      "quota_cents": 55000000,
+      "band_mode": "cliff",
+      "bands": [
+        { "up_to_ppm": 1000000, "rate_bps": 250 },
+        { "up_to_ppm": null, "rate_bps": 600 }
+      ],
+      "windfall_cap_ppm": 4000000,
+      "max_spread_bps": null,
+      "role_weights": [
+        { "role": "ae", "weight_bps": 7000 },
+        { "role": "se", "weight_bps": 3000 }
+      ]
+    }
+  ]
+}
