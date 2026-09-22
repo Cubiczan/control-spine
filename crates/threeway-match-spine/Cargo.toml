@@ -1,0 +1,15 @@
+[package]
+name = "threeway-match-spine"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Procurement control spine: deterministic three-way (PO / goods receipt / invoice) and two-way matching with typed exception queues and fail-closed evidence packs."
+publish = false
+
+[dependencies]
+spine = { path = "../spine" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+clap = { version = "4", features = ["derive"] }
+thiserror = "2"
