@@ -62,6 +62,30 @@ pack verifies; the producing engine cannot countersign its own pack.
 
 Quantities are unitless integers; matching is single-currency.
 
+## Operator workflow notes
+
+**No-GR overrides are set at invoice entry, not after a finding.** The
+`no_gr_override` flag is a property of the submitted invoice line. When a
+`NO_GR_NO_PAY` breach is produced, resolving it means re-submitting the
+invoice line with the flag set and recomputing the pack, then collecting
+four-eyes approval on the re-sealed pack — approvals are embedded when the
+pack is produced, so any new approval routes through a recompute-and-reseal
+step. A workflow that expects to attach approvals interactively to an
+existing sealed pack will not work; integration should plan for recompute.
+
+**Duplicate detection key includes the amount.** The duplicate key is
+(normalized vendor, invoice number, total payable cents). A re-submission
+with the same number but a changed amount is not flagged unless the new
+amount also violates the price tolerance against the matched PO version.
+This is an intentional trade — it prevents false positives on credit memos
+and legitimate corrections — and the residual gap is accepted. A
+vendor-and-number-only key mode would close it if a control owner requires.
+
+**Single currency.** Matching is single-currency in this version per the
+family spec: amounts carry no currency label, and mixing currencies in one
+batch is undefined input. Multi-currency support would require tagging
+every amount field and re-validating the matching semantics.
+
 ## Usage
 
 ```sh
