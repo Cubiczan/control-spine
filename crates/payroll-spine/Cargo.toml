@@ -1,0 +1,19 @@
+[package]
+name = "payroll-spine"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "HR/payroll control spine: deterministic gross-to-net recomputation, register variance detection, and fail-closed evidence packs."
+publish = false
+
+[dependencies]
+spine = { path = "../spine" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap = { version = "4", features = ["derive"] }
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+thiserror = "2"
+
+[[bin]]
+name = "payroll-spine"
+path = "src/main.rs"
