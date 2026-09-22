@@ -1,0 +1,15 @@
+[package]
+name = "coi-spine"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Risk/Insurance control spine: vendor certificate-of-insurance coverage-gap detection against a schema-checked requirements matrix, with typed findings, subject-scoped signoffs, and fail-closed evidence packs."
+publish = false
+
+[dependencies]
+spine = { path = "../spine" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+clap = { version = "4", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }

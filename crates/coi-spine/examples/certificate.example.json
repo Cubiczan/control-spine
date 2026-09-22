@@ -1,0 +1,37 @@
+{
+    "vendor_id": "V-1001",
+    "vendor_category": "electrical_contractor",
+    "policies": [
+        {
+            "policy_number": "GL-2026-001",
+            "carrier_name": "Seed Mutual",
+            "carrier_rating": "a",
+            "coverage": "general_liability",
+            "per_occurrence_limit_cents": 100000000,
+            "aggregate_limit_cents": 200000000,
+            "effective_date": "2026-01-01",
+            "expiration_date": "2026-12-31",
+            "endorsements": ["additional_insured", "waiver_of_subrogation"]
+        },
+        {
+            "policy_number": "WC-2026-001",
+            "carrier_name": "Seed Mutual",
+            "carrier_rating": "a_minus",
+            "coverage": "workers_comp",
+            "per_occurrence_limit_cents": 100000000,
+            "aggregate_limit_cents": 100000000,
+            "effective_date": "2026-01-01",
+            "expiration_date": "2027-06-30"
+        },
+        {
+            "policy_number": "AU-2026-001",
+            "carrier_name": "Seed Mutual",
+            "carrier_rating": "a_minus",
+            "coverage": "auto",
+            "per_occurrence_limit_cents": 100000000,
+            "aggregate_limit_cents": 100000000,
+            "effective_date": "2026-01-01",
+            "expiration_date": "2026-10-15"
+        }
+    ]
+}
