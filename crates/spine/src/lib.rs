@@ -10,6 +10,20 @@
 //! filesystem; randomness only from a SHA-256-derived seed, and only in
 //! engine crates that sample. Money is integer cents (i128). Time is an
 //! input supplied by the caller.
+//!
+//! # Family conventions
+//!
+//! * Canonical contract: this crate is the canonical governance contract for
+//!   new department engines; the Python `control_spine` package remains the
+//!   substrate for the existing finance-engine family.
+//! * Corrections: signed packs are immutable. A correction is a new pack
+//!   computed on corrected inputs that records its predecessor's lineage
+//!   (pack hash) in its own tool metadata — never an edit to a signed pack.
+//!   Supersede/Void lifecycle states are deferred to spine 1.1.
+//! * Version migration: a pack verifies only under the spine version that
+//!   produced it. After a spine version bump, the recovery path for 1.0.0
+//!   packs is to re-run the engine on the original inputs — the pack's
+//!   provenance hashes make that run bit-for-bit reproducible.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -69,11 +83,14 @@ impl Finding {
 }
 
 /// A human signoff receipt. `at` is an ISO-8601 timestamp supplied by the
-/// caller — the engine never reads a clock.
+/// caller — the engine never reads a clock. `subject` names the finding
+/// subject the receipt covers: an approval resolves findings on the subject
+/// it names, and nothing else.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Signoff {
     pub actor: String,
     pub role: String,
+    pub subject: String,
     pub decision: SignoffDecision,
     pub at: String,
 }
@@ -82,6 +99,11 @@ pub struct Signoff {
 /// hashes, findings, and the signoffs that resolve them.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvidencePack {
+    /// Identity of the engine that produced the pack. Separation of duties:
+    /// an approving signoff whose actor matches `engine_id` is void — an
+    /// engine cannot countersign its own pack (mirrors the Python spine's
+    /// owner-signoff-must-differ-from-preparer rule).
+    pub engine_id: String,
     /// Version of the product crate that produced the pack.
     pub tool_version: String,
     /// Version of the spine contract the pack was produced under.
@@ -116,6 +138,14 @@ pub enum LockError {
 
 /// Lock lifecycle state for a pack moving through human review. Only signed
 /// packs export; a pack with an unresolved finding cannot progress.
+///
+/// Crosswalk to the documented lock progression (`EXPLORING` → `ADVISORY` /
+/// `PROVISIONAL_LOCK` → `LOCKED`, or `HALT`): `Draft` ≡ pre-`ADVISORY`
+/// drafting, `AwaitingSignoff` ≡ `ADVISORY`/`PROVISIONAL_LOCK` (submitted for
+/// human review), `Signed` ≡ `LOCKED` — the only state that qualifies as
+/// evidence — and the unresolved-finding refusal in [`advance_lock`] ≡
+/// `HALT`. The documented constraint holds by crosswalk: `LOCKED` is the
+/// only state that is evidence, and only `Signed` packs export.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LockState {
@@ -140,10 +170,7 @@ fn hex_lower(bytes: &[u8]) -> String {
 pub fn first_unresolved_finding(pack: &EvidencePack) -> Option<&Finding> {
     pack.findings.iter().find(|f| {
         (f.severity == Severity::Breach || f.requires_signoff)
-            && !pack.signoffs.iter().any(|s| {
-                s.decision == SignoffDecision::Approve
-                    && EvidencePack::subject_covers(&s.actor, &f.subject)
-            })
+            && !pack.signoffs.iter().any(|s| pack.approval_covers(s, f))
     })
 }
 
@@ -205,11 +232,16 @@ impl EvidencePack {
         Ok(())
     }
 
-    /// Family contract: a signoff names the finding subject it covers.
-    /// Subject-level matching is enforced by each product CLI's lock
-    /// lifecycle in spine 1.0.0; the spine-level check stays permissive.
-    fn subject_covers(_actor: &str, _subject: &str) -> bool {
-        true
+    /// True when `s` is a valid human approval covering `finding.subject`:
+    /// an `Approve` decision, a non-empty actor, an actor distinct from the
+    /// producing engine (an engine cannot countersign its own pack), and a
+    /// subject naming the finding's subject exactly.
+    fn approval_covers(&self, s: &Signoff, finding: &Finding) -> bool {
+        let actor = s.actor.trim();
+        s.decision == SignoffDecision::Approve
+            && !actor.is_empty()
+            && !actor.eq_ignore_ascii_case(self.engine_id.trim())
+            && s.subject == finding.subject
     }
 }
 
@@ -221,7 +253,16 @@ mod tests {
     const PARAMS: &[u8] = b"canonical-params";
 
     fn pack(findings: Vec<Finding>, signoffs: Vec<Signoff>) -> EvidencePack {
+        pack_with_engine("engine-under-test", findings, signoffs)
+    }
+
+    fn pack_with_engine(
+        engine_id: &str,
+        findings: Vec<Finding>,
+        signoffs: Vec<Signoff>,
+    ) -> EvidencePack {
         EvidencePack {
+            engine_id: engine_id.to_string(),
             tool_version: "test-tool 0.1.0".to_string(),
             spine_version: SPINE_VERSION.to_string(),
             inputs_hash: sha256_hex(INPUTS),
@@ -231,21 +272,22 @@ mod tests {
         }
     }
 
-    fn signoff(actor: &str, decision: SignoffDecision) -> Signoff {
+    fn signoff(actor: &str, subject: &str, decision: SignoffDecision) -> Signoff {
         Signoff {
             actor: actor.to_string(),
             role: "controller".to_string(),
+            subject: subject.to_string(),
             decision,
             at: "2026-09-22T00:00:00Z".to_string(),
         }
     }
 
-    fn approve(actor: &str) -> Signoff {
-        signoff(actor, SignoffDecision::Approve)
+    fn approve(actor: &str, subject: &str) -> Signoff {
+        signoff(actor, subject, SignoffDecision::Approve)
     }
 
-    fn reject(actor: &str) -> Signoff {
-        signoff(actor, SignoffDecision::Reject)
+    fn reject(actor: &str, subject: &str) -> Signoff {
+        signoff(actor, subject, SignoffDecision::Reject)
     }
 
     fn warn_finding(requires_signoff: bool) -> Finding {
@@ -276,7 +318,7 @@ mod tests {
     fn verify_breach_with_signoff_passes() {
         let p = pack(
             vec![Finding::breach("R1", "acct-7", "over limit")],
-            vec![approve("sam")],
+            vec![approve("sam", "acct-7")],
         );
         assert_eq!(p.verify(INPUTS, PARAMS), Ok(()));
     }
@@ -341,13 +383,95 @@ mod tests {
         let flagged = pack(vec![warn_finding(true)], vec![]);
         assert!(flagged.verify(INPUTS, PARAMS).is_err());
 
-        let resolved = pack(vec![warn_finding(true)], vec![approve("sam")]);
+        let resolved = pack(vec![warn_finding(true)], vec![approve("sam", "acct-7")]);
         assert_eq!(resolved.verify(INPUTS, PARAMS), Ok(()));
     }
 
     #[test]
     fn breach_constructor_forces_signoff_requirement() {
         assert!(Finding::breach("R1", "acct-7", "over limit").requires_signoff);
+    }
+
+    #[test]
+    fn verify_requires_signoff_on_the_finding_subject() {
+        // An approval naming subject A must not clear a breach on subject B.
+        let p = pack(
+            vec![Finding::breach("R1", "acct-7", "over limit")],
+            vec![approve("sam", "acct-9")],
+        );
+        assert_eq!(
+            p.verify(INPUTS, PARAMS),
+            Err(VerifyError::UnresolvedBreach {
+                rule_id: "R1".to_string()
+            })
+        );
+
+        let matched = pack(
+            vec![Finding::breach("R1", "acct-7", "over limit")],
+            vec![approve("sam", "acct-7")],
+        );
+        assert_eq!(matched.verify(INPUTS, PARAMS), Ok(()));
+    }
+
+    #[test]
+    fn verify_multi_breach_pack_requires_per_subject_approvals() {
+        let findings = vec![
+            Finding::breach("R1", "acct-7", "over limit"),
+            Finding::breach("R2", "vendor-3", "over-billed"),
+        ];
+        // One subject's approval resolves only that subject's breach.
+        let p = pack(findings.clone(), vec![approve("sam", "acct-7")]);
+        assert_eq!(
+            p.verify(INPUTS, PARAMS),
+            Err(VerifyError::UnresolvedBreach {
+                rule_id: "R2".to_string()
+            })
+        );
+        let resolved = pack(
+            findings,
+            vec![approve("sam", "acct-7"), approve("quinn", "vendor-3")],
+        );
+        assert_eq!(resolved.verify(INPUTS, PARAMS), Ok(()));
+    }
+
+    #[test]
+    fn verify_refuses_engine_countersign() {
+        // Separation of duties: an engine cannot countersign its own pack —
+        // an approval whose actor matches engine_id (case-insensitively) is
+        // void.
+        let engine_id = "payroll-spine";
+        let breach = vec![Finding::breach("R1", "acct-7", "over limit")];
+        let only_engine = pack_with_engine(
+            engine_id,
+            breach.clone(),
+            vec![approve(engine_id, "acct-7")],
+        );
+        assert!(only_engine.verify(INPUTS, PARAMS).is_err());
+
+        let case_variant = pack_with_engine(
+            engine_id,
+            breach.clone(),
+            vec![approve("Payroll-Spine", "acct-7")],
+        );
+        assert!(case_variant.verify(INPUTS, PARAMS).is_err());
+
+        // The void receipt is powerless; a distinct human approval resolves.
+        let with_human = pack_with_engine(
+            engine_id,
+            breach,
+            vec![approve(engine_id, "acct-7"), approve("sam", "acct-7")],
+        );
+        assert_eq!(with_human.verify(INPUTS, PARAMS), Ok(()));
+    }
+
+    #[test]
+    fn verify_refuses_anonymous_approval() {
+        // A receipt with no actor is not a human signoff and cannot resolve.
+        let p = pack(
+            vec![Finding::breach("R1", "acct-7", "over limit")],
+            vec![approve("", "acct-7")],
+        );
+        assert!(p.verify(INPUTS, PARAMS).is_err());
     }
 
     #[test]
@@ -363,7 +487,7 @@ mod tests {
                 rule_id: "R1".to_string()
             })
         );
-        p.signoffs.push(approve("sam"));
+        p.signoffs.push(approve("sam", "acct-7"));
         assert_eq!(
             advance_lock(LockState::AwaitingSignoff, &p),
             Ok(LockState::Signed)
@@ -381,20 +505,33 @@ mod tests {
 
     #[test]
     fn four_eyes_requires_two_distinct_signers() {
+        let s = "subj-1";
         assert!(!four_eyes_satisfied(&[]));
-        assert!(!four_eyes_satisfied(&[approve("sam")]));
-        assert!(!four_eyes_satisfied(&[approve("sam"), approve("sam")]));
-        assert!(four_eyes_satisfied(&[approve("sam"), approve("quinn")]));
-        assert!(!four_eyes_satisfied(&[approve("sam"), reject("quinn")]));
+        assert!(!four_eyes_satisfied(&[approve("sam", s)]));
+        assert!(!four_eyes_satisfied(&[
+            approve("sam", s),
+            approve("sam", s)
+        ]));
+        assert!(four_eyes_satisfied(&[
+            approve("sam", s),
+            approve("quinn", s)
+        ]));
+        assert!(!four_eyes_satisfied(&[
+            approve("sam", s),
+            reject("quinn", s)
+        ]));
         // Case/whitespace variants merge to one signer — under-count only.
-        assert!(!four_eyes_satisfied(&[approve("Sam"), approve("sam ")]));
+        assert!(!four_eyes_satisfied(&[
+            approve("Sam", s),
+            approve("sam ", s)
+        ]));
     }
 
     #[test]
     fn evidence_pack_json_roundtrip_verifies() {
         let p = pack(
             vec![Finding::breach("R1", "acct-7", "over limit")],
-            vec![approve("sam")],
+            vec![approve("sam", "acct-7")],
         );
         let json = serde_json::to_string(&p).expect("pack serializes");
         let back: EvidencePack = serde_json::from_str(&json).expect("pack deserializes");
