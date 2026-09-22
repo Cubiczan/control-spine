@@ -75,7 +75,7 @@ def evaluate_r0(
         solvable=population_count > 0,
         scoped=bool(control_id and threshold),
         valid=bool(engine_id and inputs_hash),
-        worth_it=control_id.startswith("ICFR-"),
+        worth_it=control_id.startswith(("ICFR-", "DATA-", "P2P-")),
     )
     results = dict(gate.results)
     results["Human_gate"] = (

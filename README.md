@@ -2,7 +2,7 @@
 
 > **Cubiczan stack** — [CHP](https://github.com/Cubiczan/consensus-hardening-protocol) · **You are here:** `control-spine`
 
-**The ICFR compliance spine under the six control-gap engines.** Domain engines compute. This package decides whether the output is evidence.
+**The compliance spine under the control-gap and data-quality engines.** Domain engines compute. This package decides whether the output is evidence.
 
 A material weakness is rarely a knowledge problem. It is a capacity-and-proof problem. Automation that produces an answer without a reviewable trail adds a new untestable control. The spine is the trail.
 
@@ -32,7 +32,7 @@ UiPath handoffs can enter here as evidence packs before they are allowed to beco
 
 ## Engines on this spine
 
-`lease842` · `cuec-review` · `nexus-monitor` · `sbc-ledger` · `poc-revenue` · `combination-accounting`
+`lease842` · `cuec-review` · `nexus-monitor` · `sbc-ledger` · `poc-revenue` · `combination-accounting` · data-quality packs
 
 The spine source of truth lives here. A vendored copy ships inside each engine so a prospect can open one repo and still see the gate.
 
@@ -45,3 +45,17 @@ pytest -q
 ```
 
 Unsigned pack → `EXPLORING`, not evidence. Named controller + clear findings → `LOCKED`. Blocking findings + owner → `PROVISIONAL_LOCK`. Empty population → `HALT`.
+
+## Data Evidence Packs
+
+`control_spine.data_controls` applies the same R0, adversary and human-lock
+semantics to governed datasets. A data pack carries the dataset name, schema
+version, source-system identifier, source-extract hash, row count and quality
+findings. `DATA-*` and `P2P-*` controls are treated as worth-it by the R0
+adapter, while a named human owner remains required for `LOCKED` evidence.
+
+Data incidents follow an explicit lifecycle:
+
+```text
+OPEN -> ACKNOWLEDGED -> REMEDIATED -> VERIFIED
+```

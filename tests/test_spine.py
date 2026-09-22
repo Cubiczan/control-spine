@@ -1,4 +1,6 @@
 from control_spine import Finding, LockState, exit_code, seal
+from control_spine import Verdict
+from control_spine.data_controls import DataEvidence, DataIncident, seal_data_evidence
 
 
 FOUNDATION = ("IBR is an input.", "Bright lines are config.")
@@ -134,3 +136,24 @@ def test_exit_code_exploring_and_locked_are_zero() -> None:
     assert exit_code(locked) == 0
     assert exit_code(halt) == 2
     assert exit_code(provisional) == 2
+
+
+def test_data_evidence_can_lock_with_named_owner() -> None:
+    sealed = seal_data_evidence(DataEvidence(
+        dataset="spend",
+        schema_version="v1",
+        source_system="erp",
+        source_extract_hash="abc123",
+        row_count=10,
+        owner_signoff="Controller",
+    ))
+    assert sealed["lock_state"] == LockState.LOCKED.value
+    assert sealed["is_evidence"] is True
+    assert sealed["spine"]["r0"]["Worth_it"] == Verdict.PASS.value
+
+
+def test_data_incident_requires_verify_after_remediation() -> None:
+    incident = DataIncident("INC-1", "spend", "SCHEMA_DRIFT", "HIGH", "field removed")
+    incident = incident.acknowledge("Data Owner")
+    incident = incident.remediate("Restored compatible schema.")
+    assert incident.verify().status == "VERIFIED"
