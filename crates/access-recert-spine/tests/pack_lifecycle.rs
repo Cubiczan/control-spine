@@ -10,6 +10,7 @@ use spine::{
     sha256_hex, EvidencePack, LockState, Severity, SignoffDecision, VerifyError, SPINE_VERSION,
 };
 
+use access_recert_spine::engine::RULE_PRIVILEGED_FOUR_EYES;
 use access_recert_spine::model::{CampaignInput, RecertConfig};
 use access_recert_spine::pack::{build_pack, verify_pack, PackDocument, PackVerificationError};
 
@@ -222,4 +223,89 @@ fn unresolved_breach_packs_do_not_seal_at_signed() {
     let doc = build_pack(&input, &cfg, INPUT_BYTES, PARAM_BYTES, vec![]).unwrap();
     assert_eq!(doc.lock_state, LockState::AwaitingSignoff);
     assert_eq!(doc.pack.body_hash, String::new());
+}
+
+// ---- Four-eyes lock gate ---------------------------------------------------
+
+/// A privileged entitlement retained without pre-compute approvals fires the
+/// `privileged-four-eyes` gated warn. Its subject needs two distinct
+/// post-compute approvers before the pack may seal.
+fn four_eyes_campaign() -> (CampaignInput, RecertConfig) {
+    let mut priv_ent = entitlement("ENT-P");
+    priv_ent.privileged = true;
+    (
+        campaign(vec![identity("E-MGR"), identity("E-1")], vec![priv_ent]),
+        config(),
+    )
+}
+
+#[test]
+fn one_post_compute_signoff_cannot_resolve_four_eyes_gap() {
+    // A single human attestation does not satisfy a four-eyes control: the
+    // pack parks at awaiting_signoff instead of sealing as evidence.
+    let (input, cfg) = four_eyes_campaign();
+    let doc = build_pack(
+        &input,
+        &cfg,
+        INPUT_BYTES,
+        PARAM_BYTES,
+        vec![leaver_signoff("ENT-P")],
+    )
+    .unwrap();
+    assert_eq!(doc.lock_state, LockState::AwaitingSignoff);
+}
+
+#[test]
+fn two_distinct_approvers_seal_four_eyes_pack() {
+    let (input, cfg) = four_eyes_campaign();
+    let signoffs = vec![
+        approval("sam", "ENT-P", SignoffDecision::Approve),
+        approval("dana", "ENT-P", SignoffDecision::Approve),
+    ];
+    let doc = build_pack(&input, &cfg, INPUT_BYTES, PARAM_BYTES, signoffs).unwrap();
+    assert_eq!(doc.lock_state, LockState::Signed);
+    assert_eq!(
+        verify_pack(&doc, &input, &cfg, INPUT_BYTES, PARAM_BYTES),
+        Ok(())
+    );
+}
+
+#[test]
+fn four_eyes_distinctness_ignores_case_variants() {
+    // The spine's distinctness is trimmed and case-insensitive — fail-closed:
+    // `sam` and `Sam` count as one signer, never two.
+    let (input, cfg) = four_eyes_campaign();
+    let signoffs = vec![
+        approval("sam", "ENT-P", SignoffDecision::Approve),
+        approval("Sam", "ENT-P", SignoffDecision::Approve),
+    ];
+    let doc = build_pack(&input, &cfg, INPUT_BYTES, PARAM_BYTES, signoffs).unwrap();
+    assert_eq!(doc.lock_state, LockState::AwaitingSignoff);
+}
+
+#[test]
+fn sealed_pack_with_undercounted_four_eyes_signers_refuses_verify() {
+    // The attack the strict gate exists for: seal a pack carrying only one
+    // approver on a four-eyes subject and claim Signed. The spine floor
+    // accepts it (a warn is not a breach); the product's lock gate must
+    // still refuse.
+    let (input, cfg) = four_eyes_campaign();
+    let parked = build_pack(
+        &input,
+        &cfg,
+        INPUT_BYTES,
+        PARAM_BYTES,
+        vec![leaver_signoff("ENT-P")],
+    )
+    .unwrap();
+    let forged = PackDocument {
+        lock_state: LockState::Signed,
+        pack: parked.pack.sealed(),
+    };
+    assert_eq!(
+        verify_pack(&forged, &input, &cfg, INPUT_BYTES, PARAM_BYTES),
+        Err(PackVerificationError::UnresolvedGate {
+            rule_id: RULE_PRIVILEGED_FOUR_EYES.to_string()
+        })
+    );
 }

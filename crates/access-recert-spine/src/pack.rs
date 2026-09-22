@@ -9,8 +9,8 @@
 
 use serde::{Deserialize, Serialize};
 use spine::{
-    advance_lock, first_unresolved_finding, sha256_hex, EvidencePack, Finding, LockError,
-    LockState, Severity, Signoff, VerifyError, SPINE_VERSION,
+    advance_lock, first_unresolved_finding, four_eyes_satisfied, sha256_hex, EvidencePack, Finding,
+    LockError, LockState, Severity, Signoff, SignoffDecision, VerifyError, SPINE_VERSION,
 };
 
 use crate::engine::{
@@ -31,6 +31,41 @@ pub const ENGINE_ID: &str = "access-recert-spine";
 pub struct PackDocument {
     pub lock_state: LockState,
     pub pack: EvidencePack,
+}
+
+/// The first finding that cannot resolve under this product's lock gate:
+/// the spine floor (a gated finding with no covering human approval) plus
+/// the product's four-eyes policy — a `privileged-four-eyes` finding
+/// resolves only when two distinct humans approve its subject, so a single
+/// post-compute attestation cannot launder a four-eyes gap into signed
+/// evidence. Cover criteria mirror the spine contract's private
+/// `approval_covers` (approve decision, human actor distinct from the
+/// producing engine, exact finding subject); distinctness is delegated to
+/// the spine's public [`four_eyes_satisfied`].
+fn first_unresolved_finding_strict(pack: &EvidencePack) -> Option<&Finding> {
+    if let Some(finding) = first_unresolved_finding(pack) {
+        return Some(finding);
+    }
+    pack.findings
+        .iter()
+        .filter(|f| f.rule_id == RULE_PRIVILEGED_FOUR_EYES)
+        .find(|f| {
+            let covering: Vec<Signoff> = pack
+                .signoffs
+                .iter()
+                .filter(|s| approval_covers(pack, s, f))
+                .cloned()
+                .collect();
+            !four_eyes_satisfied(&covering)
+        })
+}
+
+fn approval_covers(pack: &EvidencePack, s: &Signoff, finding: &Finding) -> bool {
+    let actor = s.actor.trim();
+    s.decision == SignoffDecision::Approve
+        && !actor.is_empty()
+        && !actor.eq_ignore_ascii_case(pack.engine_id.trim())
+        && s.subject == finding.subject
 }
 
 /// Build the pack for a computed campaign and run the lock lifecycle:
@@ -56,7 +91,7 @@ pub fn build_pack(
         body_hash: String::new(),
     };
     let mut state = advance_lock(LockState::Draft, &mut pack)?;
-    if first_unresolved_finding(&pack).is_none() {
+    if first_unresolved_finding_strict(&pack).is_none() {
         state = advance_lock(state, &mut pack)?; // seals the pack at Signed
     }
     Ok(PackDocument {
@@ -76,6 +111,10 @@ pub enum PackVerificationError {
     /// The pack's findings do not reproduce from the inputs: the recorded
     /// findings were not produced by this engine from these inputs.
     RecomputationMismatch,
+    /// The pack claims `Signed` but a gated finding is unresolved under the
+    /// lock gate — including a `privileged-four-eyes` finding with fewer
+    /// than two distinct approvers.
+    UnresolvedGate { rule_id: String },
 }
 
 impl std::fmt::Display for PackVerificationError {
@@ -89,6 +128,11 @@ impl std::fmt::Display for PackVerificationError {
             Self::RecomputationMismatch => write!(
                 f,
                 "findings do not reproduce from inputs — pack body does not match engine output"
+            ),
+            Self::UnresolvedGate { rule_id } => write!(
+                f,
+                "finding {rule_id} is unresolved under the lock gate — gated findings need \
+                 covering signoffs and four-eyes findings need two distinct approvers"
             ),
         }
     }
@@ -111,6 +155,11 @@ pub fn verify_pack(
         .pack
         .verify(inputs_bytes, params_bytes)
         .map_err(PackVerificationError::Spine)?;
+    if let Some(finding) = first_unresolved_finding_strict(&document.pack) {
+        return Err(PackVerificationError::UnresolvedGate {
+            rule_id: finding.rule_id.clone(),
+        });
+    }
     let recomputed = engine::evaluate(input, config, &document.pack.engine_id);
     let recorded = serde_json::to_value(&document.pack.findings)
         .expect("Finding is a plain struct; serialization cannot fail");

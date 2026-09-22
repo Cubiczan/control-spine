@@ -36,7 +36,7 @@ never silently dropped and never attributed by email.
 | `orphan-system` | breach | The entitlement's owning system has no managed-system record. |
 | `orphan-manager` | warn | The identity's manager of record is absent or does not resolve to an HR identity (new-hire grace exempt). |
 | `stale-auth` | warn | No successful authentication within `stale_days` (strictly older fires; never-authenticated is always stale; new-hire grace exempt). |
-| `privileged-four-eyes` | warn | A privileged entitlement is retained with fewer than two distinct approving signers. |
+| `privileged-four-eyes` | warn | A privileged entitlement is retained with fewer than two distinct approving signers. Resolving it at the lock gate takes two distinct approvers — see the lifecycle section. |
 | `quarantine` | warn | The entitlement's `employee_id` does not resolve to an HR identity. |
 
 Boundaries, pinned by tests:
@@ -72,7 +72,29 @@ corrections are new packs computed on corrected inputs.
 Retention approvals supplied at compute time are the pack's signoff
 receipts: an approval for an entitlement's subject resolves gated
 findings on that subject (spine-enforced; product CLIs do not re-implement
-subject matching).
+subject matching). One product rule sits above the spine floor: a
+`privileged-four-eyes` finding resolves at the lock gate only when two
+distinct humans approve its subject — a single post-compute receipt
+cannot launder a four-eyes gap into signed evidence, and `verify`
+refuses a pack whose four-eyes finding is under-approved even when the
+pack is sealed and internally consistent.
+
+Approval data reaches a pack through two channels with different
+effects. `retention_approvals` in the campaign input are pre-compute
+business decisions: sufficient approvals (two distinct signers for
+privileged access) suppress the `privileged-four-eyes` finding from
+firing at all. Signoff receipts supplied to `compute --signoffs` are
+post-compute attestations: findings fire and are then resolved. Both
+produce evidence, but the trail differs — pick one workflow per
+campaign (collect approvals first, or compute first and gather
+receipts) rather than mixing them.
+
+Warn-severity findings (`stale-auth`, `orphan-manager`) do not require
+signoff: a Signed pack can carry them, and they ride along as risk
+indicators for the reviewer. If your control framework treats stale
+access as a control gap rather than an indicator, disposition those
+findings in the campaign workflow before computing — the engine does
+not block on warns.
 
 `verify` fails closed through three gates: lock state (`Signed` only),
 the spine contract (seal, provenance hashes, signoffs), and a full
