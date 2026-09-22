@@ -94,6 +94,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
+name = "capa-spine"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "serde",
+ "serde_json",
+ "spine",
+ "thiserror",
+]
+
+[[package]]
 name = "cc"
 version = "1.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -170,10 +182,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 
 [[package]]
+name = "contract-obligation-spine"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "serde",
+ "serde_json",
+ "sha2",
+ "spine",
+ "thiserror",
+]
+
+[[package]]
 name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
+
+[[package]]
+name = "covenant-spine"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "serde",
+ "serde_json",
+ "spine",
+ "thiserror",
+]
 
 [[package]]
 name = "cpufeatures"

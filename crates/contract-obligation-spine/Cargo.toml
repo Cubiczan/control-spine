@@ -1,0 +1,16 @@
+[package]
+name = "contract-obligation-spine"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Legal control spine: typed obligation register with deterministic deadline and renewal-window arithmetic, evidence packs, and fail-closed verification."
+publish = false
+
+[dependencies]
+spine = { path = "../spine" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
