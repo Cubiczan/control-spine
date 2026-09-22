@@ -1,0 +1,13 @@
+# Control-spine Cargo workspace (spec: Department Control-Spine Products,
+# rev 2). The Python package under src/control_spine/ is untouched and stays
+# the Python face of the spine; crates/* join it as workspace members.
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+# Shared release profile for engine crates: deterministic codegen and
+# overflow-checked arithmetic for engines that must fail closed.
+[profile.release]
+lto = true
+codegen-units = 1
+overflow-checks = true

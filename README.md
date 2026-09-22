@@ -24,6 +24,8 @@ See also the promoted example: [icohangar-ops/chp-examples](https://github.com/i
 | **Adversary** | Completeness, human owner, open exceptions, foundation committed before measurement |
 | **Lock** | `EXPLORING` → `ADVISORY` / `PROVISIONAL_LOCK` → `LOCKED`, or `HALT` |
 | **Human** | An engine cannot countersign its own pack. `LOCKED` is the only state that is evidence. |
+| **Rust lock crosswalk** | Evidence-pack locks in `crates/spine`: `Draft` ≡ pre-`ADVISORY`, `AwaitingSignoff` ≡ `ADVISORY`/`PROVISIONAL_LOCK`, `Signed` ≡ `LOCKED` (the only evidence-qualifying state), unresolved-breach refusal ≡ `HALT`. |
+| **Rust seal** | The Seal row holds for the Rust family with no exemption: evidence packs in `crates/spine` carry a body hash — SHA-256 over the canonical pack body (the envelope hash of the spine body). `verify` recomputes it from the pack's contents and refuses altered packs; the lock seals a pack at `Signed`, signed packs are immutable, and corrections are new packs referencing a predecessor's body hash. |
 | **Seal** | SHA-256 of canonical inputs + envelope hash of the spine body |
 
 Aligned to CHP session status and R0 via the published engine, not a full reimplementation of the protocol. Deterministic. No model in the gate.
@@ -59,3 +61,13 @@ Data incidents follow an explicit lifecycle:
 ```text
 OPEN -> ACKNOWLEDGED -> REMEDIATED -> VERIFIED
 ```
+
+## Department engines (Rust)
+
+`crates/` is a Cargo workspace joining this Python package: one deterministic engine crate per department control function (payroll, access recertification, covenant testing, three-way match, and so on), plus `crates/spine` — the canonical governance crate every engine depends on by path. The Rust spine crate is the canonical governance contract for new department engines; the Python package remains the substrate for the existing finance-engine family.
+
+Both distribution models are intentional. The standalone Python engines vendor a byte-identical copy of the `control_spine` module inside each engine repo so a prospect can open any one repo and still see the gate. The Rust workspace inverts that: `crates/spine` is the single source of truth and engine crates depend on it by path — vendored spine copies are forbidden there, because this workspace is itself the one repo that shows the gate.
+
+The spine crate carries the family contract: typed findings and severities, human signoff receipts scoped to the exact finding subject, engine separation of duties (no engine may countersign its own pack), the `draft → awaiting_signoff → signed` lock lifecycle, four-eyes approval for privileged actions, and evidence packs that fail closed — `verify` recomputes the body hash over the pack body (tamper-evident: altered packs refuse), then the SHA-256 provenance hashes from the canonical inputs, and refuses any pack it cannot prove. The lock lifecycle seals the pack at `Signed`.
+
+Engines are pure: no clock, no network, no filesystem, and money in integer cents. Rule and factor tables shipped in engine crates are seed data, clearly labeled — not authoritative regulatory values. No benchmarks or compliance certifications are claimed in this repo.
