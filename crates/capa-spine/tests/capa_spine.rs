@@ -4,10 +4,9 @@
 
 use capa_spine::{
     build_pack, evaluate, normalize_description, AgingRules, CapaConfig, CapaEvaluation,
-    CapaRecord, Category, Detectability, EffectivenessCheck, Status, ENGINE_ID,
-    RULE_AGING_BREACH, RULE_AGING_WARN, RULE_BROKEN_REOPEN_LINK, RULE_CLOSURE_BLOCKED,
-    RULE_CONTAINMENT_LATE, RULE_CONTAINMENT_OVERDUE, RULE_DUPLICATE_DESCRIPTION,
-    RULE_EFFECTIVENESS_OVERDUE,
+    CapaRecord, Category, Detectability, EffectivenessCheck, Status, ENGINE_ID, RULE_AGING_BREACH,
+    RULE_AGING_WARN, RULE_BROKEN_REOPEN_LINK, RULE_CLOSURE_BLOCKED, RULE_CONTAINMENT_LATE,
+    RULE_CONTAINMENT_OVERDUE, RULE_DUPLICATE_DESCRIPTION, RULE_EFFECTIVENESS_OVERDUE,
 };
 use chrono::{DateTime, Duration, Utc};
 use spine::{sha256_hex, Severity, Signoff, SignoffDecision, VerifyError, SPINE_VERSION};
@@ -158,7 +157,10 @@ fn config_refuses_inverted_aging_thresholds() {
         };
         let bytes = serde_json::to_vec(&config).unwrap();
         let err = CapaConfig::parse(&bytes).unwrap_err();
-        assert!(err.to_string().contains("aging thresholds invalid"), "{err}");
+        assert!(
+            err.to_string().contains("aging thresholds invalid"),
+            "{err}"
+        );
     }
 }
 
