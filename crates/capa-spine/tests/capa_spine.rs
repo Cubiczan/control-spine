@@ -3,10 +3,11 @@
 //! through the public API.
 
 use capa_spine::{
-    build_pack, evaluate, normalize_description, CapaConfig, CapaEvaluation, CapaRecord, Category,
-    Detectability, EffectivenessCheck, Status, ENGINE_ID, RULE_AGING_BREACH, RULE_AGING_WARN,
-    RULE_BROKEN_REOPEN_LINK, RULE_CLOSURE_BLOCKED, RULE_CONTAINMENT_LATE, RULE_CONTAINMENT_OVERDUE,
-    RULE_DUPLICATE_DESCRIPTION, RULE_EFFECTIVENESS_OVERDUE,
+    build_pack, evaluate, normalize_description, AgingRules, CapaConfig, CapaEvaluation,
+    CapaRecord, Category, Detectability, EffectivenessCheck, Status, ENGINE_ID,
+    RULE_AGING_BREACH, RULE_AGING_WARN, RULE_BROKEN_REOPEN_LINK, RULE_CLOSURE_BLOCKED,
+    RULE_CONTAINMENT_LATE, RULE_CONTAINMENT_OVERDUE, RULE_DUPLICATE_DESCRIPTION,
+    RULE_EFFECTIVENESS_OVERDUE,
 };
 use chrono::{DateTime, Duration, Utc};
 use spine::{sha256_hex, Severity, Signoff, SignoffDecision, VerifyError, SPINE_VERSION};
@@ -150,35 +151,29 @@ fn config_refuses_unknown_fields() {
 #[test]
 fn config_refuses_inverted_aging_thresholds() {
     for (warn, breach) in [(90u64, 30u64), (30, 30), (0, 30)] {
-        let raw = format!(
-            r#"{{"severity_matrix": [], "containment_hours": {{}}, "aging": {{"warn_after_days": {warn}, "breach_after_days": {breach}}}, "effectiveness_window_days": 60}}"#
-        );
-        let err = CapaConfig::parse(raw.as_bytes()).unwrap_err();
-        assert!(
-            err.to_string().contains("aging thresholds invalid"),
-            "{err}"
-        );
+        let mut config = seed_config();
+        config.aging = AgingRules {
+            warn_after_days: warn,
+            breach_after_days: breach,
+        };
+        let bytes = serde_json::to_vec(&config).unwrap();
+        let err = CapaConfig::parse(&bytes).unwrap_err();
+        assert!(err.to_string().contains("aging thresholds invalid"), "{err}");
     }
 }
 
 #[test]
 fn config_refuses_degenerate_windows() {
-    let zero_containment = r#"{
-        "severity_matrix": [],
-        "containment_hours": {"breach": 0, "warn": 72},
-        "aging": {"warn_after_days": 30, "breach_after_days": 90},
-        "effectiveness_window_days": 60
-    }"#;
-    let err = CapaConfig::parse(zero_containment.as_bytes()).unwrap_err();
+    let mut zero_containment = seed_config();
+    zero_containment.containment_hours.breach = Some(0);
+    let bytes = serde_json::to_vec(&zero_containment).unwrap();
+    let err = CapaConfig::parse(&bytes).unwrap_err();
     assert!(err.to_string().contains("at least one hour"), "{err}");
 
-    let zero_effectiveness = r#"{
-        "severity_matrix": [],
-        "containment_hours": {},
-        "aging": {"warn_after_days": 30, "breach_after_days": 90},
-        "effectiveness_window_days": 0
-    }"#;
-    let err = CapaConfig::parse(zero_effectiveness.as_bytes()).unwrap_err();
+    let mut zero_effectiveness = seed_config();
+    zero_effectiveness.effectiveness_window_days = 0;
+    let bytes = serde_json::to_vec(&zero_effectiveness).unwrap();
+    let err = CapaConfig::parse(&bytes).unwrap_err();
     assert!(err.to_string().contains("must be positive"), "{err}");
 }
 
@@ -397,6 +392,7 @@ fn effectiveness_completed_produces_no_finding() {
     let config = seed_config();
     let as_of = ts("2026-09-22T00:00:00Z");
     let mut record = base_capa("CAPA-1");
+    contained(&mut record);
     record.status = Status::Closed;
     record.closed_at = Some(as_of - Duration::days(120));
     record.root_cause = Some("root cause narrative".to_string());
@@ -470,6 +466,7 @@ fn reopen_cycle_uses_fresh_clocks_and_links_parent() {
 
     let mut parent = base_capa("CAPA-1");
     contained(&mut parent);
+    parent.description = "conveyor bearing failure".to_string();
     parent.opened_at = as_of - Duration::days(200);
     parent.status = Status::Closed;
     parent.closed_at = Some(parent.opened_at + Duration::days(3));
@@ -481,6 +478,7 @@ fn reopen_cycle_uses_fresh_clocks_and_links_parent() {
 
     let mut child = base_capa("CAPA-2");
     contained(&mut child);
+    child.description = "conveyor bearing failure — cycle 2".to_string();
     child.opened_at = as_of - Duration::hours(2); // fresh clock on the new cycle
     child.parent_id = Some("CAPA-1".to_string());
 
@@ -571,10 +569,15 @@ fn pack_orders_findings_by_subject_then_rule() {
     let config = seed_config();
     let as_of = ts("2026-09-22T00:00:00Z");
     // Input order CAPA-2, CAPA-10; lexicographic subject order is CAPA-10
-    // first — the pack must sort, not follow input order.
+    // first — the pack must sort, not follow input order. Descriptions are
+    // distinct so duplicate detection stays out of the way.
     let mut a = base_capa("CAPA-2");
+    contained(&mut a);
+    a.description = "alpha incident".to_string();
     a.opened_at = as_of - Duration::days(2);
     let mut b = base_capa("CAPA-10");
+    contained(&mut b);
+    b.description = "beta incident".to_string();
     b.opened_at = as_of - Duration::days(2);
     let capas = vec![a, b];
     let capas_bytes = serde_json::to_vec(&capas).unwrap();
