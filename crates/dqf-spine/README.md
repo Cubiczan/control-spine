@@ -33,12 +33,21 @@ there and are never re-implemented here.
 | `DQF-REHIRE-LINKAGE` | Rehire's prior cycle is unknown or not a prior cycle | Warn |
 | `DQF-OUT-OF-CYCLE-DOC` | Document stamped with a cycle other than the driver's current cycle | Warn |
 | `DQF-EXPIRING-SOON` | Expiry or window boundary within `expiring_warn_days` of the campaign date, inclusive | Warn |
+| `DQF-CONFIG-CDL-OPTIONAL` / `DQF-CONFIG-MEDICAL-OPTIONAL` | A safety-critical checklist item is configured not required (subject `config:checklist.…`) | Warn — makes the control removal visible in every pack |
 
 Breach-severity findings (`Finding::breach`) always require a signoff receipt
 naming the driver's subject. Resolving an OOS breach — returning a driver to
 service — is a privileged action under fleet policy and requires **four-eyes**
 approval (two distinct human signers): `four_eyes_ok_for_subject` scopes the
 check to the subject and voids engine-actor receipts.
+
+**`Signed` does not certify four-eyes.** The lock lifecycle seals a pack at
+`Signed` once the hashes verify and every breach finding carries a matching
+subject-scoped approve signoff — a single signer can satisfy that minimum,
+because the lock lifecycle is the shared spine contract and is not altered
+here. A downstream consumer must call `four_eyes_ok_for_subject` explicitly
+before treating a signed OOS-breach pack as clearance to return a driver to
+service; the lock state alone is not that clearance.
 
 ## Boundary conventions
 

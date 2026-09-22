@@ -42,6 +42,8 @@ pub const R_STATE_CDL_RULE: &str = "DQF-STATE-CDL-RULE";
 pub const R_REHIRE_LINKAGE: &str = "DQF-REHIRE-LINKAGE";
 pub const R_OUT_OF_CYCLE_DOC: &str = "DQF-OUT-OF-CYCLE-DOC";
 pub const R_EXPIRING_SOON: &str = "DQF-EXPIRING-SOON";
+pub const R_CONFIG_CDL_OPTIONAL: &str = "DQF-CONFIG-CDL-OPTIONAL";
+pub const R_CONFIG_MEDICAL_OPTIONAL: &str = "DQF-CONFIG-MEDICAL-OPTIONAL";
 
 /// Evaluate a whole driver file. Findings are deterministic and sorted by
 /// (subject, rule_id, message). Malformed input is refused, never patched.
@@ -61,6 +63,26 @@ pub fn evaluate(
         }
     }
     let mut findings = Vec::new();
+    // Config-signal warnings: making a safety-critical checklist item
+    // optional removes the only check that flags an actively driving driver
+    // with no document on file. That is a legitimate operator choice (for
+    // example, a non-CDL administrative population in the same file), but it
+    // must be visible in every pack computed under that config — a silent
+    // control removal is a safety hole.
+    if !config.checklist.cdl.required {
+        findings.push(warn(
+            R_CONFIG_CDL_OPTIONAL,
+            "config:checklist.cdl",
+            "checklist.cdl is configured not required: the OOS check for actively driving drivers with no CDL on file is disabled",
+        ));
+    }
+    if !config.checklist.medical_certificate.required {
+        findings.push(warn(
+            R_CONFIG_MEDICAL_OPTIONAL,
+            "config:checklist.medical_certificate",
+            "checklist.medical_certificate is configured not required: the OOS check for actively driving drivers with no medical certificate on file is disabled",
+        ));
+    }
     for driver in drivers {
         evaluate_driver(driver, config, as_of, &mut findings)?;
     }
@@ -1155,6 +1177,34 @@ mod tests {
     }
 
     // -- Fail-closed input shape -------------------------------------------------
+
+    #[test]
+    fn optional_safety_critical_items_emit_config_warnings() {
+        let mut config = cfg();
+        config.checklist.cdl.required = false;
+        config.checklist.medical_certificate.required = false;
+        let findings = evaluate(&[driver(full_dqf())], &config, as_of()).expect("valid input");
+        for (rule, subject) in [
+            (R_CONFIG_CDL_OPTIONAL, "config:checklist.cdl"),
+            (
+                R_CONFIG_MEDICAL_OPTIONAL,
+                "config:checklist.medical_certificate",
+            ),
+        ] {
+            let f = findings
+                .iter()
+                .find(|f| f.rule_id == rule)
+                .unwrap_or_else(|| panic!("missing config-signal finding {rule}"));
+            assert_eq!(f.severity, Severity::Warn);
+            assert_eq!(f.subject, subject);
+            assert!(!f.requires_signoff);
+        }
+        // The default config (everything required) emits no config signals.
+        let defaults = evaluate(&[driver(full_dqf())], &cfg(), as_of()).expect("valid input");
+        assert!(!defaults
+            .iter()
+            .any(|f| f.rule_id == R_CONFIG_CDL_OPTIONAL || f.rule_id == R_CONFIG_MEDICAL_OPTIONAL));
+    }
 
     #[test]
     fn future_issued_document_is_refused() {

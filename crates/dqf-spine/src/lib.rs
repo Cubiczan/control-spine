@@ -12,7 +12,9 @@
 //!   recomputes everything and refuses any doubt.
 //! * Breach findings (out-of-service risk on an actively driving driver)
 //!   resolve only with a human signoff naming the driver — and never the
-//!   engine itself.
+//!   engine itself. The `Signed` lock state seals the pack but does not
+//!   certify four-eyes; the explicit operational gate is
+//!   [`four_eyes_ok_for_subject`].
 //! * This crate depends on the canonical `spine` governance crate by path;
 //!   subject-level signoff matching and separation of duties are enforced
 //!   there, never re-implemented here.
@@ -77,6 +79,8 @@ pub fn build_pack(
 
 /// Four-eyes gate for the privileged action of resolving an out-of-service
 /// breach: two distinct human signers must approve the driver's subject.
+/// This helper is the explicit four-eyes check — the `Signed` lock state does
+/// not certify four-eyes.
 ///
 /// Distinctness arithmetic is delegated to the spine; this helper scopes the
 /// receipts to the subject and voids engine-actor signoffs (separation of
