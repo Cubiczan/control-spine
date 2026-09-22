@@ -709,7 +709,7 @@ fn verify_refuses_tampered_pack_body() {
         SEED_CONFIG.as_bytes(),
     );
     pack.signoffs.push(approve("sam", "CAPA-1"));
-    let pack = pack.sealed();
+    let mut pack = pack.sealed();
     assert_eq!(pack.verify(&capas_bytes, SEED_CONFIG.as_bytes()), Ok(()));
 
     // Tamper: downgrade the breach after the fact — the seal refuses.
@@ -723,8 +723,6 @@ fn verify_refuses_tampered_pack_body() {
 
 #[test]
 fn verify_refuses_tampered_inputs_and_params() {
-    let config = seed_config();
-    let as_of = ts("2026-09-22T00:00:00Z");
     let mut record = base_capa("CAPA-1");
     contained(&mut record); // clean capa → clean pack
     let capas = vec![record];
@@ -743,8 +741,6 @@ fn verify_refuses_tampered_inputs_and_params() {
 
 #[test]
 fn verify_refuses_unsealed_pack() {
-    let config = seed_config();
-    let as_of = ts("2026-09-22T00:00:00Z");
     let mut record = base_capa("CAPA-1");
     contained(&mut record);
     let capas = vec![record];
