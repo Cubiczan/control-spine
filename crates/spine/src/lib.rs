@@ -2,7 +2,7 @@
 //!
 //! Every department engine crate in this workspace depends on `spine` by path
 //! and ships the same contract: typed findings, human signoff receipts, the
-//! lock lifecycle, and evidence packs with SHA-256 provenance and envelope
+//! lock lifecycle, and evidence packs with SHA-256 provenance and body
 //! hashes that fail closed — a pack either proves itself or
 //! [`EvidencePack::verify`] refuses.
 //!
@@ -18,12 +18,13 @@
 //!   substrate for the existing finance-engine family.
 //! * Corrections: signed packs are immutable. A correction is a new pack
 //!   computed on corrected inputs that records its predecessor's lineage
-//!   (envelope hash) in its own tool metadata — never an edit to a signed
+//!   (body hash) in its own tool metadata — never an edit to a signed
 //!   pack. Supersede/Void lifecycle states are deferred to spine 1.1.
-//! * Tamper evidence: the envelope hash covers the full pack body (the
-//!   SHA-256 seal of the Python spine's envelope). Verify recomputes it
-//!   from the pack's actual contents and refuses altered packs; the
-//!   envelope hash is a pack's identity for lineage references.
+//! * Tamper evidence: the body hash covers the full pack body (the Seal
+//!   gate's envelope: SHA-256 of canonical inputs + envelope hash of the
+//!   spine body — no Rust exemption). Verify recomputes it from the
+//!   pack's actual contents and refuses altered packs; the body hash is a
+//!   pack's identity for lineage references.
 //! * Version migration: a pack verifies only under the spine version that
 //!   produced it. After a spine version bump, the recovery path for 1.0.0
 //!   packs is to re-run the engine on the original inputs — the pack's
@@ -101,7 +102,7 @@ pub struct Signoff {
 
 /// Evidence pack emitted by every compute run: inputs/params provenance
 /// hashes, findings, and the signoffs that resolve them. The full body is
-/// sealed by an envelope hash — see [`EvidencePack::sealed`].
+/// sealed by a body hash — see [`EvidencePack::sealed`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvidencePack {
     /// Identity of the engine that produced the pack. Separation of duties:
@@ -119,11 +120,13 @@ pub struct EvidencePack {
     pub params_hash: String,
     pub findings: Vec<Finding>,
     pub signoffs: Vec<Signoff>,
-    /// SHA-256 over the canonical serialization of every other field — the
-    /// envelope hash (the Seal gate's Rust implementation). Empty on a pack
-    /// that has not been sealed yet; [`EvidencePack::verify`] refuses packs
-    /// whose envelope hash does not recompute.
-    pub envelope_hash: String,
+    /// SHA-256 over the canonical serialization of the pack body in fixed
+    /// field order (spine_version, tool_version, engine_id, inputs_hash,
+    /// params_hash, findings, signoffs) — the Seal gate's Rust
+    /// implementation. Empty on a pack that has not been sealed yet;
+    /// [`EvidencePack::verify`] refuses packs whose body hash does not
+    /// recompute.
+    pub body_hash: String,
 }
 
 /// Verify refusal reasons.
@@ -131,6 +134,8 @@ pub struct EvidencePack {
 pub enum VerifyError {
     #[error("hash mismatch: {field}")]
     HashMismatch { field: &'static str },
+    #[error("body hash mismatch: pack body altered after production")]
+    BodyHashMismatch,
     #[error("unresolved finding: rule {rule_id} lacks an approving signoff")]
     UnresolvedBreach { rule_id: String },
     #[error("foreign version: pack does not carry this spine version or tool_version is empty")]
@@ -164,14 +169,14 @@ pub enum LockState {
     Signed,
 }
 
-/// Canonical serialization of the pack body for the envelope hash: fixed
-/// field order, strings and slices only — byte-deterministic for identical
+/// Canonical serialization of the pack body for the body hash: fixed field
+/// order, strings and slices only — byte-deterministic for identical
 /// contents.
 #[derive(Serialize)]
-struct EnvelopeBody<'a> {
-    engine_id: &'a str,
-    tool_version: &'a str,
+struct CanonicalBody<'a> {
     spine_version: &'a str,
+    tool_version: &'a str,
+    engine_id: &'a str,
     inputs_hash: &'a str,
     params_hash: &'a str,
     findings: &'a [Finding],
@@ -217,17 +222,24 @@ pub fn four_eyes_satisfied(signoffs: &[Signoff]) -> bool {
 /// Advance the lock lifecycle one step for `pack`:
 /// `draft` → `awaiting_signoff` (submitting for review) → `signed`.
 ///
-/// `awaiting_signoff` → `signed` refuses while any finding is unresolved.
-/// Run [`EvidencePack::verify`] before advancing — hash integrity is the
-/// caller's gate here, not the lock's.
-pub fn advance_lock(current: LockState, pack: &EvidencePack) -> Result<LockState, LockError> {
+/// `awaiting_signoff` → `signed` refuses while any finding is unresolved;
+/// on success it seals the pack — the body hash is computed over the body as
+/// it stands when Signed, so a pack cannot reach `Signed` without a valid
+/// seal, and any later body change breaks it (re-signing happens only
+/// through a new pack; signed packs stay immutable). Run
+/// [`EvidencePack::verify`] before advancing — inputs/params integrity is
+/// the caller's gate here, not the lock's.
+pub fn advance_lock(current: LockState, pack: &mut EvidencePack) -> Result<LockState, LockError> {
     match current {
         LockState::Draft => Ok(LockState::AwaitingSignoff),
         LockState::AwaitingSignoff => match first_unresolved_finding(pack) {
             Some(finding) => Err(LockError::UnresolvedBreach {
                 rule_id: finding.rule_id.clone(),
             }),
-            None => Ok(LockState::Signed),
+            None => {
+                pack.body_hash = sha256_hex(&pack.canonical_body_bytes());
+                Ok(LockState::Signed)
+            }
         },
         LockState::Signed => Err(LockError::InvalidTransition(current)),
     }
@@ -243,10 +255,11 @@ impl EvidencePack {
         if self.spine_version != SPINE_VERSION || self.tool_version.is_empty() {
             return Err(VerifyError::ForeignVersion);
         }
-        // Seal gate first: the stored inputs/params hashes only mean
-        // something if the body that carries them is intact.
-        if self.envelope_hash != sha256_hex(&self.envelope_body_bytes()) {
-            return Err(VerifyError::HashMismatch { field: "envelope" });
+        // Seal gate second (after version identity): the stored
+        // inputs/params hashes only mean something if the body that carries
+        // them is intact.
+        if self.body_hash != sha256_hex(&self.canonical_body_bytes()) {
+            return Err(VerifyError::BodyHashMismatch);
         }
         if self.inputs_hash != sha256_hex(inputs) {
             return Err(VerifyError::HashMismatch { field: "inputs" });
@@ -267,23 +280,23 @@ impl EvidencePack {
     /// of the pack breaks the seal and [`EvidencePack::verify`] refuses.
     /// Sealing is idempotent.
     pub fn sealed(mut self) -> Self {
-        let body = self.envelope_body_bytes();
-        self.envelope_hash = sha256_hex(&body);
+        let body = self.canonical_body_bytes();
+        self.body_hash = sha256_hex(&body);
         self
     }
 
-    fn envelope_body_bytes(&self) -> Vec<u8> {
-        let body = EnvelopeBody {
-            engine_id: &self.engine_id,
-            tool_version: &self.tool_version,
+    fn canonical_body_bytes(&self) -> Vec<u8> {
+        let body = CanonicalBody {
             spine_version: &self.spine_version,
+            tool_version: &self.tool_version,
+            engine_id: &self.engine_id,
             inputs_hash: &self.inputs_hash,
             params_hash: &self.params_hash,
             findings: &self.findings,
             signoffs: &self.signoffs,
         };
         serde_json::to_vec(&body)
-            .expect("EnvelopeBody is a fixed-shape struct; serialization cannot fail")
+            .expect("CanonicalBody is a fixed-shape struct; serialization cannot fail")
     }
 
     /// True when `s` is a valid human approval covering `finding.subject`:
@@ -323,7 +336,7 @@ mod tests {
             params_hash: sha256_hex(PARAMS),
             findings,
             signoffs,
-            envelope_hash: String::new(),
+            body_hash: String::new(),
         }
     }
 
@@ -545,10 +558,7 @@ mod tests {
 
         p.findings[0].severity = Severity::Warn;
         p.findings[0].requires_signoff = false;
-        assert_eq!(
-            p.verify(INPUTS, PARAMS),
-            Err(VerifyError::HashMismatch { field: "envelope" })
-        );
+        assert_eq!(p.verify(INPUTS, PARAMS), Err(VerifyError::BodyHashMismatch));
 
         // Deleting a finding is the same refusal.
         let mut q = pack(
@@ -565,52 +575,109 @@ mod tests {
 
     #[test]
     fn verify_refuses_unsealed_pack() {
-        // An unsealed pack carries an empty envelope hash and cannot verify —
+        // An unsealed pack carries an empty body hash and cannot verify —
         // fail-closed, no bypass path for unsigned bodies.
         let p = pack_with_engine("engine-under-test", vec![], vec![]);
-        assert_eq!(
-            p.verify(INPUTS, PARAMS),
-            Err(VerifyError::HashMismatch { field: "envelope" })
+        assert_eq!(p.verify(INPUTS, PARAMS), Err(VerifyError::BodyHashMismatch));
+    }
+
+    #[test]
+    fn verify_refuses_signoff_tampering() {
+        // A signoff altered after sealing — subject swapped or decision
+        // flipped — breaks the seal.
+        let mut p = pack(
+            vec![Finding::breach("R1", "acct-7", "over limit")],
+            vec![approve("sam", "acct-7")],
         );
+        assert_eq!(p.verify(INPUTS, PARAMS), Ok(()));
+
+        p.signoffs[0].subject = "acct-9".to_string();
+        assert_eq!(p.verify(INPUTS, PARAMS), Err(VerifyError::BodyHashMismatch));
+
+        let mut q = pack(
+            vec![Finding::breach("R1", "acct-7", "over limit")],
+            vec![approve("sam", "acct-7")],
+        );
+        q.signoffs[0].decision = SignoffDecision::Reject;
+        assert_eq!(q.verify(INPUTS, PARAMS), Err(VerifyError::BodyHashMismatch));
+    }
+
+    #[test]
+    fn verify_refuses_engine_id_tampering() {
+        let mut p = pack(
+            vec![Finding::breach("R1", "acct-7", "over limit")],
+            vec![approve("sam", "acct-7")],
+        );
+        assert_eq!(p.verify(INPUTS, PARAMS), Ok(()));
+
+        p.engine_id = "other-engine".to_string();
+        assert_eq!(p.verify(INPUTS, PARAMS), Err(VerifyError::BodyHashMismatch));
+    }
+
+    #[test]
+    fn verify_refuses_version_field_tampering() {
+        // spine_version tampering trips ForeignVersion first; tool_version
+        // stays non-empty and trips the body hash — both refuse.
+        let mut p = pack(
+            vec![Finding::breach("R1", "acct-7", "over limit")],
+            vec![approve("sam", "acct-7")],
+        );
+        assert_eq!(p.verify(INPUTS, PARAMS), Ok(()));
+
+        p.tool_version = "test-tool 0.2.0".to_string();
+        assert_eq!(p.verify(INPUTS, PARAMS), Err(VerifyError::BodyHashMismatch));
+
+        let mut q = pack(vec![], vec![]);
+        q.spine_version = "9.9.9".to_string();
+        assert_eq!(q.verify(INPUTS, PARAMS), Err(VerifyError::ForeignVersion));
     }
 
     #[test]
     fn sealed_is_idempotent_and_hash_tracks_body() {
         let a = pack(vec![Finding::breach("R1", "acct-7", "over limit")], vec![]);
         let b = a.clone().sealed();
-        assert_eq!(a.envelope_hash, b.envelope_hash);
+        assert_eq!(a.body_hash, b.body_hash);
 
         let mut c = a.clone();
         c.signoffs.push(approve("sam", "acct-7"));
         let c = c.sealed();
-        assert_ne!(a.envelope_hash, c.envelope_hash);
+        assert_ne!(a.body_hash, c.body_hash);
     }
 
     #[test]
     fn lock_lifecycle_blocks_signing_until_findings_resolve() {
         let mut p = pack(vec![Finding::breach("R1", "acct-7", "over limit")], vec![]);
         assert_eq!(
-            advance_lock(LockState::Draft, &p),
+            advance_lock(LockState::Draft, &mut p),
             Ok(LockState::AwaitingSignoff)
         );
         assert_eq!(
-            advance_lock(LockState::AwaitingSignoff, &p),
+            advance_lock(LockState::AwaitingSignoff, &mut p),
             Err(LockError::UnresolvedBreach {
                 rule_id: "R1".to_string()
             })
         );
         p.signoffs.push(approve("sam", "acct-7"));
         assert_eq!(
-            advance_lock(LockState::AwaitingSignoff, &p),
+            advance_lock(LockState::AwaitingSignoff, &mut p),
             Ok(LockState::Signed)
         );
+        // Signing seals the pack: the body hash recomputes and verify holds.
+        assert!(!p.body_hash.is_empty());
+        assert_eq!(p.verify(INPUTS, PARAMS), Ok(()));
+
+        // Post-signing body changes break the seal — re-sign only via a new
+        // pack (signed packs are immutable).
+        let mut q = p.clone();
+        q.signoffs[0].subject = "acct-9".to_string();
+        assert_eq!(q.verify(INPUTS, PARAMS), Err(VerifyError::BodyHashMismatch));
     }
 
     #[test]
     fn lock_signed_is_terminal() {
-        let p = pack(vec![], vec![]);
+        let mut p = pack(vec![], vec![]);
         assert_eq!(
-            advance_lock(LockState::Signed, &p),
+            advance_lock(LockState::Signed, &mut p),
             Err(LockError::InvalidTransition(LockState::Signed))
         );
     }
