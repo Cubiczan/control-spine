@@ -29,6 +29,12 @@ pub struct PayrollConfig {
     /// Register tolerance in cents: variances strictly greater than this are
     /// flagged. Zero flags any difference, including one cent.
     pub register_tolerance_cents: i128,
+    /// Optional tax year the shipped tables were built for. The engine cannot
+    /// know current law (tables are operator-maintained seed data), so a run
+    /// whose period starts in a different year emits a `PAY-TAX-YEAR` warning
+    /// instead of refusing. Absent means no staleness signal.
+    #[serde(default)]
+    pub valid_for_tax_year: Option<u16>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

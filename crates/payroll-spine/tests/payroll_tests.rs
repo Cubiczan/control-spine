@@ -9,6 +9,7 @@ use payroll_spine::config::{
 use payroll_spine::engine::{
     compute, fit_annual_tax, CalendarKind, EmployeeInput, EmployeeSummary, PayrollError,
     PayrollInput, PayrollOutcome, PeriodInput, RULE_NEGATIVE_NET, RULE_REGISTER_VARIANCE,
+    RULE_TAX_YEAR_MISMATCH,
 };
 use payroll_spine::pack::{build_pack, canonical_input_bytes, canonical_param_bytes, ENGINE_ID};
 use spine::{Finding, Severity, Signoff, SignoffDecision, VerifyError};
@@ -78,6 +79,7 @@ fn seed_config() -> PayrollConfig {
         },
         retirement_401k_pre_tax: true,
         register_tolerance_cents: 0,
+        valid_for_tax_year: None,
     }
 }
 
@@ -139,6 +141,48 @@ fn approve(actor: &str, subject: &str) -> Signoff {
         decision: SignoffDecision::Approve,
         at: "2026-03-16T00:00:00Z".to_string(),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Declared tax-year staleness
+// ---------------------------------------------------------------------------
+
+#[test]
+fn tax_year_mismatch_emits_a_warn_not_a_refusal() {
+    let mut config = seed_config();
+    config.valid_for_tax_year = Some(2025);
+    let inputs = one(employee("E1"));
+    let outcome = compute(&inputs, &config).unwrap();
+    assert!(outcome
+        .findings
+        .iter()
+        .any(|f| f.rule_id == RULE_TAX_YEAR_MISMATCH
+            && f.severity == Severity::Warn
+            && f.subject == "period:2026-03-01"
+            && !f.requires_signoff));
+    // The pack still builds and verifies — a warning never blocks.
+    let pack = build_pack(&inputs, &config, &outcome).unwrap();
+    let input_bytes = canonical_input_bytes(&inputs).unwrap();
+    let param_bytes = canonical_param_bytes(&config).unwrap();
+    assert!(pack.verify(&input_bytes, &param_bytes).is_ok());
+}
+
+#[test]
+fn tax_year_match_or_absent_is_silent() {
+    let mut matching = seed_config();
+    matching.valid_for_tax_year = Some(2026);
+    assert!(compute(&one(employee("E1")), &matching)
+        .unwrap()
+        .findings
+        .iter()
+        .all(|f| f.rule_id != RULE_TAX_YEAR_MISMATCH));
+
+    let absent = seed_config();
+    assert!(compute(&one(employee("E1")), &absent)
+        .unwrap()
+        .findings
+        .iter()
+        .all(|f| f.rule_id != RULE_TAX_YEAR_MISMATCH));
 }
 
 // ---------------------------------------------------------------------------

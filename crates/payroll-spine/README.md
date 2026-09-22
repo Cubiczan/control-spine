@@ -71,6 +71,18 @@ jurisdiction-correct tables; the engine validates shape and sanity
 tolerance ≥ 0, SUTA base > 0) but cannot validate whether a number is the
 law's current answer.
 
+Optional `valid_for_tax_year` declares the year the supplied tables were
+built for. A run whose period starts in a different year emits a
+`PAY-TAX-YEAR` warning finding — a signal to re-check the tables, not a
+refusal, because the engine cannot know current law.
+
+Year-to-date wage balances (`ytd_*` fields) are **caller-supplied at every
+run**; the engine does not accumulate them across runs. Cap-crossing logic
+(Social Security base, additional Medicare threshold) is only as sound as
+those YTD figures — typically sourced from the same payroll provider whose
+register the engine audits. Cross-check YTD balances before relying on
+cap-crossing evidence.
+
 ## Purity and determinism
 
 - No clock: the period and every employee date are inputs; findings whose

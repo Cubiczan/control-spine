@@ -22,6 +22,7 @@ pub const RULE_SUMMARY: &str = "PAY-SUMMARY";
 pub const RULE_RUN_SUMMARY: &str = "PAY-RUN-SUMMARY";
 pub const RULE_REGISTER_VARIANCE: &str = "PAY-REGISTER-VARIANCE";
 pub const RULE_NEGATIVE_NET: &str = "PAY-NEG-NET";
+pub const RULE_TAX_YEAR_MISMATCH: &str = "PAY-TAX-YEAR";
 
 /// Rates are micro-percent: 6_200_000 = 6.2%.
 pub const RATE_SCALE: i128 = 1_000_000;
@@ -543,6 +544,26 @@ pub fn compute(
 
     let mut summaries = Vec::with_capacity(inputs.employees.len());
     let mut findings = Vec::new();
+
+    // Declared tax-year staleness: tables are operator-maintained seed data
+    // and the engine cannot know current law, so a run whose period starts in
+    // a different year than the config declares warns instead of refusing.
+    if let Some(tax_year) = config.valid_for_tax_year {
+        let start_year = parse_date("period.start", &inputs.period.start)?.year();
+        if start_year != i32::from(tax_year) {
+            findings.push(Finding {
+                rule_id: RULE_TAX_YEAR_MISMATCH.to_string(),
+                severity: Severity::Warn,
+                subject: format!("period:{}", inputs.period.start),
+                message: format!(
+                    "config declares valid_for_tax_year {tax_year}; period starts {start} — update the seed rate tables if the declared year is stale",
+                    start = inputs.period.start
+                ),
+                requires_signoff: false,
+            });
+        }
+    }
+
     let mut total_gross = 0i128;
     let mut total_withholdings = 0i128;
     let mut total_net = 0i128;
@@ -610,7 +631,7 @@ pub fn compute(
                 RULE_NEGATIVE_NET,
                 s.employee_id.clone(),
                 format!(
-                    "net pay after deductions is negative ({net}c) — payroll run blocked pending signoff",
+                    "net pay after deductions is negative ({net}c) — payroll run blocked pending signoff; the engine does not model garnishments or other provider-side deductions, so confirm the actual cause before re-running",
                     net = s.net_cents
                 ),
             ));
