@@ -467,9 +467,9 @@ fn reopen_cycle_uses_fresh_clocks_and_links_parent() {
     let as_of = ts("2026-09-22T00:00:00Z");
 
     let mut parent = base_capa("CAPA-1");
-    contained(&mut parent);
     parent.description = "conveyor bearing failure".to_string();
     parent.opened_at = as_of - Duration::days(200);
+    contained(&mut parent); // records containment at the final opened_at
     parent.status = Status::Closed;
     parent.closed_at = Some(parent.opened_at + Duration::days(3));
     parent.root_cause = Some("fixed long ago".to_string());
@@ -479,9 +479,9 @@ fn reopen_cycle_uses_fresh_clocks_and_links_parent() {
     });
 
     let mut child = base_capa("CAPA-2");
-    contained(&mut child);
     child.description = "conveyor bearing failure — cycle 2".to_string();
     child.opened_at = as_of - Duration::hours(2); // fresh clock on the new cycle
+    contained(&mut child); // on time against the fresh clock
     child.parent_id = Some("CAPA-1".to_string());
 
     let evaluations = evaluate(&[parent, child], &config, as_of).unwrap();
@@ -571,14 +571,13 @@ fn pack_orders_findings_by_subject_then_rule() {
     let config = seed_config();
     let as_of = ts("2026-09-22T00:00:00Z");
     // Input order CAPA-2, CAPA-10; lexicographic subject order is CAPA-10
-    // first — the pack must sort, not follow input order. Descriptions are
-    // distinct so duplicate detection stays out of the way.
+    // first — the pack must sort, not follow input order. Both are
+    // containment-overdue with distinct descriptions, so each subject
+    // contributes exactly one finding.
     let mut a = base_capa("CAPA-2");
-    contained(&mut a);
     a.description = "alpha incident".to_string();
     a.opened_at = as_of - Duration::days(2);
     let mut b = base_capa("CAPA-10");
-    contained(&mut b);
     b.description = "beta incident".to_string();
     b.opened_at = as_of - Duration::days(2);
     let capas = vec![a, b];
