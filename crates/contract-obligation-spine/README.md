@@ -21,8 +21,9 @@ a contract register at a given date:
 2. **Which renewal windows are closing?** Every `renewal_opt_out` obligation
    gets its opt-out deadline (`renewal_date − notice_days`, business-day
    rolled), days remaining, and findings when a window closes without an
-   opt-out (breach under auto-renew), or when a contract has already renewed
-   without one (breach).
+   opt-out (breach under auto-renew; an informational record under
+   non-auto-renew terms, preserving the audit trail without asserting a
+   breach), or when a contract has already renewed without one (breach).
 3. **What do the SLAs owe?** Every `sla` obligation's measured periods land
    in a credit tier from the params table; a period below every tier floor
    is a breach, a stale measurement is a monitoring warn, and credits are

@@ -77,6 +77,7 @@ pub mod rule_ids {
     pub const OPTOUT_OPEN: &str = "RENEW-OPTOUT-OPEN";
     pub const OPTOUT_CLOSING: &str = "RENEW-OPTOUT-CLOSING";
     pub const OPTOUT_PASSED: &str = "RENEW-OPTOUT-PASSED";
+    pub const OPTOUT_WINDOW_CLOSED: &str = "RENEW-OPTOUT-WINDOW-CLOSED";
     pub const AUTO_RENEWED: &str = "RENEW-AUTO-RENEWED";
     pub const OPTOUT_EXERCISED: &str = "RENEW-OPTOUT-EXERCISED";
     pub const TERM_ENDED: &str = "RENEW-TERM-ENDED";
@@ -410,9 +411,19 @@ fn evaluate_renewal(
                     renewal.renewal_date
                 ),
             ));
+        } else {
+            // Without auto-renew a missed opt-out has no direct cost, but the
+            // audit trail must still show the window closed: an Info finding
+            // records the closed window without asserting a compliance breach.
+            findings.push(info(
+                rule_ids::OPTOUT_WINDOW_CLOSED,
+                &record.id,
+                format!(
+                    "opt-out window closed {deadline}; no auto-renew; term ends {0}",
+                    renewal.renewal_date
+                ),
+            ));
         }
-        // Without auto-renew a missed opt-out has no cost: the term simply
-        // ends; no finding in the gap between deadline and term end.
     } else if days_remaining <= i64::from(params.warn_days_before_optout) {
         findings.push(warn(
             rule_ids::OPTOUT_CLOSING,
@@ -1115,18 +1126,23 @@ mod tests {
     }
 
     #[test]
-    fn missed_optout_without_auto_renew_is_not_a_breach() {
-        // Without auto-renew a missed opt-out simply lets the term end.
+    fn missed_optout_without_auto_renew_is_info_not_a_breach() {
+        // Without auto-renew a missed opt-out simply lets the term end — but
+        // the closed window must still appear in the audit trail as an Info
+        // finding, not disappear silently and never assert a breach.
         let ev = run_at(
             vec![renewal_obligation(false, false)],
             &params(),
             d(2026, 11, 28),
         );
-        assert!(
-            ev.findings.is_empty(),
-            "{severities:?}",
-            severities = severities(&ev)
+        assert_eq!(
+            severities(&ev),
+            vec![(Severity::Info, rule_ids::OPTOUT_WINDOW_CLOSED)]
         );
+        assert!(!ev.findings[0].requires_signoff);
+        assert!(ev.findings[0]
+            .message
+            .contains("no auto-renew; term ends 2027-01-05"));
     }
 
     #[test]
