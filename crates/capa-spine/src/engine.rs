@@ -4,7 +4,7 @@
 //! no network, no RNG. Identical records, config, and clock produce
 //! identical findings in identical order.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Duration, Utc};
 use spine::{sha256_hex, Finding, Severity};
@@ -105,12 +105,24 @@ impl PartialEq for CapaEvaluation {
 }
 
 /// Evaluate the population. Deterministic: input order fixes evaluation
-/// order; findings carry stable subjects and rule ids.
+/// order; findings carry stable subjects and rule ids. Fail-closed: a
+/// population with duplicate ids is refused before any evaluation.
 pub fn evaluate(
     capas: &[CapaRecord],
     config: &CapaConfig,
     as_of: DateTime<Utc>,
 ) -> Result<Vec<CapaEvaluation>, ConfigError> {
+    // Ids are the subject keys for findings and signoff receipts: a repeated
+    // id would let one subject-scoped receipt stand as evidence for two
+    // records. Refuse before any evaluation; input order fixes which
+    // duplicate is named.
+    let mut seen_ids: HashSet<&str> = HashSet::with_capacity(capas.len());
+    for capa in capas {
+        if !seen_ids.insert(capa.id.as_str()) {
+            return Err(ConfigError::DuplicateCapaId(capa.id.clone()));
+        }
+    }
+
     // Duplicate detection needs the whole population: map each normalized
     // description hash to the lexicographically smallest id carrying it, so
     // one deterministic record is canonical and every other carrier names it.

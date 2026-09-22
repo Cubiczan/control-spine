@@ -179,6 +179,58 @@ fn config_refuses_degenerate_windows() {
     assert!(err.to_string().contains("must be positive"), "{err}");
 }
 
+// --- Population id uniqueness (fail-closed) --------------------------------
+
+#[test]
+fn population_refuses_duplicate_capa_ids() {
+    let config = seed_config();
+    let as_of = ts("2026-09-22T00:00:00Z");
+    let capas = [
+        base_capa("CAPA-1"),
+        base_capa("CAPA-1"),
+        base_capa("CAPA-2"),
+    ];
+    let err = evaluate(&capas, &config, as_of).unwrap_err();
+    assert!(err.to_string().contains("duplicate CAPA id"), "{err}");
+    assert!(err.to_string().contains("CAPA-1"), "{err}");
+}
+
+#[test]
+fn duplicate_id_refusal_names_the_first_repeated_id_in_input_order() {
+    let config = seed_config();
+    let as_of = ts("2026-09-22T00:00:00Z");
+    // CAPA-B repeats before CAPA-A does, so CAPA-B is named even though
+    // CAPA-A sorts first — input order fixes the refusal, not sorting.
+    let capas = [
+        base_capa("CAPA-B"),
+        base_capa("CAPA-A"),
+        base_capa("CAPA-B"),
+        base_capa("CAPA-A"),
+    ];
+    let err = evaluate(&capas, &config, as_of).unwrap_err();
+    assert!(err.to_string().contains("CAPA-B"), "{err}");
+    assert!(!err.to_string().contains("CAPA-A"), "{err}");
+}
+
+#[test]
+fn population_with_distinct_ids_is_unaffected() {
+    let config = seed_config();
+    let as_of = ts("2026-09-22T00:00:00Z");
+    let mut second = base_capa("CAPA-2");
+    second.description = "Different nonconformance".to_string();
+    let capas = [base_capa("CAPA-1"), second];
+    let evaluations = evaluate(&capas, &config, as_of).unwrap();
+    assert_eq!(evaluations.len(), 2);
+    for evaluation in &evaluations {
+        // quality × low → 24h containment, overdue at this clock; aging and
+        // duplicate-description stay quiet.
+        assert_eq!(evaluation.findings.len(), 1, "{evaluation:?}");
+        assert!(has_rule(evaluation, RULE_CONTAINMENT_OVERDUE));
+        assert!(!has_rule(evaluation, RULE_DUPLICATE_DESCRIPTION));
+        assert!(!has_rule(evaluation, RULE_AGING_WARN));
+    }
+}
+
 // --- Containment -----------------------------------------------------------
 
 #[test]
