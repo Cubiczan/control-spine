@@ -5,11 +5,11 @@
 use capa_spine::{
     build_pack, evaluate, normalize_description, CapaConfig, CapaEvaluation, CapaRecord, Category,
     Detectability, EffectivenessCheck, Status, ENGINE_ID, RULE_AGING_BREACH, RULE_AGING_WARN,
-    RULE_BROKEN_REOPEN_LINK, RULE_CLOSURE_BLOCKED, RULE_CONTAINMENT_LATE,
-    RULE_CONTAINMENT_OVERDUE, RULE_DUPLICATE_DESCRIPTION, RULE_EFFECTIVENESS_OVERDUE,
+    RULE_BROKEN_REOPEN_LINK, RULE_CLOSURE_BLOCKED, RULE_CONTAINMENT_LATE, RULE_CONTAINMENT_OVERDUE,
+    RULE_DUPLICATE_DESCRIPTION, RULE_EFFECTIVENESS_OVERDUE,
 };
 use chrono::{DateTime, Duration, Utc};
-use spine::{sha256_hex, Severity, Signoff, SignoffDecision, SPINE_VERSION, VerifyError};
+use spine::{sha256_hex, Severity, Signoff, SignoffDecision, VerifyError, SPINE_VERSION};
 
 const SEED_CONFIG: &str = r#"{
   "severity_matrix": [
@@ -154,7 +154,10 @@ fn config_refuses_inverted_aging_thresholds() {
             r#"{{"severity_matrix": [], "containment_hours": {{}}, "aging": {{"warn_after_days": {warn}, "breach_after_days": {breach}}}, "effectiveness_window_days": 60}}"#
         );
         let err = CapaConfig::parse(raw.as_bytes()).unwrap_err();
-        assert!(err.to_string().contains("aging thresholds invalid"), "{err}");
+        assert!(
+            err.to_string().contains("aging thresholds invalid"),
+            "{err}"
+        );
     }
 }
 
@@ -489,11 +492,7 @@ fn reopen_cycle_uses_fresh_clocks_and_links_parent() {
     assert!(!has_rule(child_eval, RULE_AGING_WARN));
     assert!(child_eval.parent_present);
     assert_eq!(child_eval.parent_id.as_deref(), Some("CAPA-1"));
-    assert!(
-        child_eval.findings.is_empty(),
-        "{:?}",
-        child_eval.findings
-    );
+    assert!(child_eval.findings.is_empty(), "{:?}", child_eval.findings);
     // Parent stays clean and closed.
     assert!(!evaluations[0].treated_as_open);
     assert!(evaluations[0].findings.is_empty());
@@ -552,7 +551,12 @@ fn pack_carries_provenance_and_seal() {
     let capas_bytes = serde_json::to_vec(&capas).unwrap();
 
     let evaluations = evaluate(&capas, &config, as_of).unwrap();
-    let pack = build_pack(ENGINE_ID, flattened(&evaluations), &capas_bytes, SEED_CONFIG.as_bytes());
+    let pack = build_pack(
+        ENGINE_ID,
+        flattened(&evaluations),
+        &capas_bytes,
+        SEED_CONFIG.as_bytes(),
+    );
 
     assert_eq!(pack.inputs_hash, sha256_hex(&capas_bytes));
     assert_eq!(pack.params_hash, sha256_hex(SEED_CONFIG.as_bytes()));
@@ -576,7 +580,12 @@ fn pack_orders_findings_by_subject_then_rule() {
     let capas_bytes = serde_json::to_vec(&capas).unwrap();
 
     let evaluations = evaluate(&capas, &config, as_of).unwrap();
-    let pack = build_pack(ENGINE_ID, flattened(&evaluations), &capas_bytes, SEED_CONFIG.as_bytes());
+    let pack = build_pack(
+        ENGINE_ID,
+        flattened(&evaluations),
+        &capas_bytes,
+        SEED_CONFIG.as_bytes(),
+    );
     let subjects: Vec<&str> = pack.findings.iter().map(|f| f.subject.as_str()).collect();
     assert_eq!(subjects, vec!["CAPA-10", "CAPA-2"]);
 }
@@ -593,7 +602,12 @@ fn verify_accepts_signed_pack_with_per_subject_signoffs() {
     let capas_bytes = serde_json::to_vec(&capas).unwrap();
 
     let evaluations = evaluate(&capas, &config, as_of).unwrap();
-    let pack = build_pack(ENGINE_ID, flattened(&evaluations), &capas_bytes, SEED_CONFIG.as_bytes());
+    let pack = build_pack(
+        ENGINE_ID,
+        flattened(&evaluations),
+        &capas_bytes,
+        SEED_CONFIG.as_bytes(),
+    );
 
     // Unsigned: refused, naming the first unresolved rule.
     assert_eq!(
@@ -628,7 +642,12 @@ fn verify_refuses_signoff_for_the_wrong_subject() {
     let capas_bytes = serde_json::to_vec(&capas).unwrap();
 
     let evaluations = evaluate(&capas, &config, as_of).unwrap();
-    let mut pack = build_pack(ENGINE_ID, flattened(&evaluations), &capas_bytes, SEED_CONFIG.as_bytes());
+    let mut pack = build_pack(
+        ENGINE_ID,
+        flattened(&evaluations),
+        &capas_bytes,
+        SEED_CONFIG.as_bytes(),
+    );
     pack.signoffs.push(approve("sam", "CAPA-9"));
     let pack = pack.sealed();
     assert!(pack.verify(&capas_bytes, SEED_CONFIG.as_bytes()).is_err());
@@ -644,7 +663,12 @@ fn verify_refuses_engine_self_signoff() {
     let capas_bytes = serde_json::to_vec(&capas).unwrap();
 
     let evaluations = evaluate(&capas, &config, as_of).unwrap();
-    let mut pack = build_pack(ENGINE_ID, flattened(&evaluations), &capas_bytes, SEED_CONFIG.as_bytes());
+    let mut pack = build_pack(
+        ENGINE_ID,
+        flattened(&evaluations),
+        &capas_bytes,
+        SEED_CONFIG.as_bytes(),
+    );
     // Separation of duties: the engine's own receipt — exact or case-variant
     // — is void.
     pack.signoffs.push(approve(ENGINE_ID, "CAPA-1"));
@@ -678,7 +702,12 @@ fn verify_refuses_tampered_pack_body() {
     let capas_bytes = serde_json::to_vec(&capas).unwrap();
 
     let evaluations = evaluate(&capas, &config, as_of).unwrap();
-    let mut pack = build_pack(ENGINE_ID, flattened(&evaluations), &capas_bytes, SEED_CONFIG.as_bytes());
+    let mut pack = build_pack(
+        ENGINE_ID,
+        flattened(&evaluations),
+        &capas_bytes,
+        SEED_CONFIG.as_bytes(),
+    );
     pack.signoffs.push(approve("sam", "CAPA-1"));
     let pack = pack.sealed();
     assert_eq!(pack.verify(&capas_bytes, SEED_CONFIG.as_bytes()), Ok(()));
@@ -740,7 +769,12 @@ fn signed_pack_json_roundtrip_verifies() {
     let capas_bytes = serde_json::to_vec(&capas).unwrap();
 
     let evaluations = evaluate(&capas, &config, as_of).unwrap();
-    let mut pack = build_pack(ENGINE_ID, flattened(&evaluations), &capas_bytes, SEED_CONFIG.as_bytes());
+    let mut pack = build_pack(
+        ENGINE_ID,
+        flattened(&evaluations),
+        &capas_bytes,
+        SEED_CONFIG.as_bytes(),
+    );
     pack.signoffs.push(approve("sam", "CAPA-1"));
     let pack = pack.sealed();
 

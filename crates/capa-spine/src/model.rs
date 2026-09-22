@@ -19,11 +19,7 @@ pub enum Category {
 
 impl Category {
     /// Every category, for matrix completeness validation.
-    pub const ALL: [Category; 3] = [
-        Category::Safety,
-        Category::Regulatory,
-        Category::Quality,
-    ];
+    pub const ALL: [Category; 3] = [Category::Safety, Category::Regulatory, Category::Quality];
 
     pub fn label(self) -> &'static str {
         match self {

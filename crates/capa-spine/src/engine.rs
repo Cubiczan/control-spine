@@ -47,7 +47,7 @@ pub fn description_hash(description: &str) -> String {
 }
 
 /// Deterministic evaluation of one CAPA as of the clock.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct CapaEvaluation {
     pub capa_id: String,
     /// Severity assigned by the configured matrix.
@@ -74,6 +74,36 @@ pub struct CapaEvaluation {
     pub findings: Vec<Finding>,
 }
 
+/// Manual equality: `spine::Finding` does not implement `PartialEq`, so
+/// findings compare field-by-field. Determinism tests rely on this.
+impl PartialEq for CapaEvaluation {
+    fn eq(&self, other: &Self) -> bool {
+        self.capa_id == other.capa_id
+            && self.severity == other.severity
+            && self.containment_required == other.containment_required
+            && self.containment_hours == other.containment_hours
+            && self.containment_due == other.containment_due
+            && self.containment_recorded_at == other.containment_recorded_at
+            && self.treated_as_open == other.treated_as_open
+            && self.effectiveness_due == other.effectiveness_due
+            && self.duplicate_of == other.duplicate_of
+            && self.parent_id == other.parent_id
+            && self.parent_present == other.parent_present
+            && self.findings.len() == other.findings.len()
+            && self
+                .findings
+                .iter()
+                .zip(other.findings.iter())
+                .all(|(a, b)| {
+                    a.rule_id == b.rule_id
+                        && a.severity == b.severity
+                        && a.subject == b.subject
+                        && a.message == b.message
+                        && a.requires_signoff == b.requires_signoff
+                })
+    }
+}
+
 /// Evaluate the population. Deterministic: input order fixes evaluation
 /// order; findings carry stable subjects and rule ids.
 pub fn evaluate(
@@ -87,9 +117,7 @@ pub fn evaluate(
     let mut first_by_hash: HashMap<String, String> = HashMap::new();
     for capa in capas {
         let hash = description_hash(&capa.description);
-        let first = first_by_hash
-            .entry(hash)
-            .or_insert_with(|| capa.id.clone());
+        let first = first_by_hash.entry(hash).or_insert_with(|| capa.id.clone());
         if capa.id < *first {
             *first = capa.id.clone();
         }
@@ -124,8 +152,10 @@ fn evaluate_one(
     // classified severity. Overdue only strictly past the due instant.
     let containment_hours = config.containment_hours_for(severity);
     let containment_required = containment_hours.is_some();
+    let mut containment_due: Option<DateTime<Utc>> = None;
     if let Some(hours) = containment_hours {
         let due = capa.opened_at + Duration::hours(hours as i64);
+        containment_due = Some(due);
         match capa.containment_recorded_at {
             None if as_of > due => findings.push(Finding::breach(
                 RULE_CONTAINMENT_OVERDUE,

@@ -125,7 +125,11 @@ fn run(cli: Cli) -> Result<(), String> {
             }
             Ok(())
         }
-        Command::Verify { pack, capas, config } => {
+        Command::Verify {
+            pack,
+            capas,
+            config,
+        } => {
             let (capas_bytes, _) = load_capas(&capas)?;
             let (config_bytes, _) = load_config(&config)?;
             let pack_bytes = fs::read(&pack)
