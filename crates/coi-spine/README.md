@@ -48,7 +48,7 @@ then highest per-occurrence limit, then lowest policy number.
 | required endorsement missing | breach |
 | carrier rating below floor | breach |
 | coverage expires within the warning window | warn |
-| vendor category absent from the matrix | warn (recommended finding: fix the matrix) |
+| vendor category absent from the matrix | breach (fail-closed; fix the matrix or sign off the gap) |
 | critical-category lockout recommendation | warn (advisory; human executes) |
 
 Every breach finding carries `requires_signoff: true` and is resolved only by
