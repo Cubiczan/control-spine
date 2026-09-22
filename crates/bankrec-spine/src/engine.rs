@@ -35,6 +35,8 @@ pub const RULE_LEDGER_UNMATCHED: &str = "ledger-unmatched";
 /// Rule id: duplicate statement line (same reference, amount, and date).
 pub const RULE_STMT_DUPLICATE: &str = "stmt-duplicate";
 
+pub const RULE_LEDGER_DUPLICATE: &str = "ledger-duplicate";
+
 /// Smallest many-to-one group size; a single ledger line is the
 /// exact/tolerance tiers' job.
 pub const MIN_GROUP_SIZE: usize = 2;
@@ -121,6 +123,7 @@ pub fn compute(
     let tolerance = i128::from(config.tolerance_cents);
 
     let mut findings = duplicate_findings(statements);
+    findings.extend(duplicate_ledger_findings(ledgers));
 
     let mut consumed_statement = vec![false; statements.len()];
     let mut consumed_ledger = vec![false; ledgers.len()];
@@ -196,8 +199,17 @@ pub fn compute(
         }
         let target = statements[s].amount;
         let positive = target > 0;
+        // Optional date-proximity constraint: when
+        // `many_to_one_date_window_days` is set, only ledger entries within
+        // that many days of the statement line (either direction) are
+        // eligible — prevents groups that silently pair a fresh statement
+        // line with long-outstanding open items.
+        let in_window = |l: usize| match config.many_to_one_date_window_days {
+            None => true,
+            Some(w) => (ledgers[l].date - statements[s].date).num_days().abs() <= w,
+        };
         let mut candidates: Vec<usize> = (0..ledgers.len())
-            .filter(|&l| !consumed_ledger[l] && (ledgers[l].amount > 0) == positive)
+            .filter(|&l| !consumed_ledger[l] && (ledgers[l].amount > 0) == positive && in_window(l))
             .collect();
         // Canonical candidate order: date, then reference, then input order.
         candidates.sort_by(|&a, &b| {
@@ -344,14 +356,19 @@ pub fn compute(
     }
 }
 
-/// Duplicate statement lines: same reference, canonical amount, and date →
-/// a warn finding on every occurrence after the first. BTreeMap keeps the
-/// finding order deterministic (sorted by reference, amount, date).
-fn duplicate_findings(statements: &[crate::inputs::CanonicalStatement]) -> Vec<Finding> {
+/// Duplicate item detection, shared by the statement-side and ledger-side
+/// rules: same reference, canonical amount, and date → a warn finding on
+/// every occurrence after the first. BTreeMap keeps the finding order
+/// deterministic (sorted by reference, amount, date).
+fn duplicate_rows_findings(
+    rows: &[(String, String, i128, NaiveDate)],
+    rule_id: &str,
+    noun: &str,
+) -> Vec<Finding> {
     let mut groups: BTreeMap<(&str, i128, NaiveDate), Vec<usize>> = BTreeMap::new();
-    for (i, st) in statements.iter().enumerate() {
+    for (i, (_id, reference, amount, date)) in rows.iter().enumerate() {
         groups
-            .entry((&st.reference, st.amount, st.date))
+            .entry((reference.as_str(), *amount, *date))
             .or_default()
             .push(i);
     }
@@ -362,19 +379,39 @@ fn duplicate_findings(statements: &[crate::inputs::CanonicalStatement]) -> Vec<F
         }
         let first = indexes[0];
         for &i in &indexes[1..] {
+            let (id, reference, _, date) = &rows[i];
             findings.push(Finding {
-                rule_id: RULE_STMT_DUPLICATE.to_string(),
+                rule_id: rule_id.to_string(),
                 severity: Severity::Warn,
-                subject: statements[i].id.clone(),
+                subject: id.clone(),
                 message: format!(
-                    "duplicate statement line: same reference ({}) and date ({}) as {}",
-                    statements[i].reference, statements[i].date, statements[first].id
+                    "duplicate {noun}: same reference ({reference}) and date ({date}) as {}",
+                    rows[first].0
                 ),
                 requires_signoff: false,
             });
         }
     }
     findings
+}
+
+fn duplicate_findings(statements: &[crate::inputs::CanonicalStatement]) -> Vec<Finding> {
+    let rows: Vec<(String, String, i128, NaiveDate)> = statements
+        .iter()
+        .map(|s| (s.id.clone(), s.reference.clone(), s.amount, s.date))
+        .collect();
+    duplicate_rows_findings(&rows, RULE_STMT_DUPLICATE, "statement line")
+}
+
+/// A duplicate ledger entry is a double-posting — the more serious control
+/// failure on the books side — but the response is the same warn-tier
+/// treatment so the human close sees it before the pack seals.
+fn duplicate_ledger_findings(ledgers: &[crate::inputs::CanonicalLedger]) -> Vec<Finding> {
+    let rows: Vec<(String, String, i128, NaiveDate)> = ledgers
+        .iter()
+        .map(|l| (l.id.clone(), l.reference.clone(), l.amount, l.date))
+        .collect();
+    duplicate_rows_findings(&rows, RULE_LEDGER_DUPLICATE, "ledger entry")
 }
 
 /// Bounded same-sign subset search: the first group of `MIN_GROUP_SIZE`
@@ -482,6 +519,7 @@ mod tests {
             max_group_size: 5,
             stale_days: 14,
             many_to_one_candidate_cap: 100,
+            many_to_one_date_window_days: None,
         }
     }
 
@@ -782,6 +820,97 @@ mod tests {
                 .count(),
             2
         );
+    }
+
+    #[test]
+    fn duplicate_ledger_entries_warn() {
+        let r = run(
+            vec![],
+            vec![
+                ld("L1", "2026-09-01", "DUP", 45_000),
+                ld("L2", "2026-09-01", "DUP", 45_000),
+            ],
+            &config(0),
+        );
+        // A double-posted ledger entry warns on the later occurrence but
+        // still participates in matching.
+        let dup: Vec<_> = r
+            .findings
+            .iter()
+            .filter(|f| f.rule_id == RULE_LEDGER_DUPLICATE)
+            .collect();
+        assert_eq!(dup.len(), 1);
+        assert_eq!(dup[0].severity, Severity::Warn);
+        assert_eq!(dup[0].subject, "L2");
+        assert!(!dup[0].requires_signoff);
+    }
+
+    #[test]
+    fn duplicate_ledger_entries_require_same_date() {
+        let r = run(
+            vec![],
+            vec![
+                ld("L1", "2026-09-01", "DUP", 45_000),
+                ld("L2", "2026-09-02", "DUP", 45_000),
+            ],
+            &config(0),
+        );
+        assert!(!r
+            .findings
+            .iter()
+            .any(|f| f.rule_id == RULE_LEDGER_DUPLICATE));
+    }
+
+    #[test]
+    fn many_to_one_respects_date_window_when_configured() {
+        // L2 is 7 days before the statement line — outside a 3-day window.
+        let statements = vec![st("S1", "2026-09-22", "BATCH", 10_000)];
+        let ledgers = vec![
+            ld("L1", "2026-09-21", "A", 6_000),
+            ld("L2", "2026-09-15", "B", 4_000),
+        ];
+
+        // Seed default (no window): the sum-group match succeeds.
+        let unwindowed = BankrecConfig {
+            many_to_one_date_window_days: None,
+            ..config(0)
+        };
+        let r = run(statements.clone(), ledgers.clone(), &unwindowed);
+        assert!(r
+            .matches
+            .iter()
+            .any(|m| m.tier == MatchTier::ManyToOne && m.statement_id == "S1"));
+
+        // With a 3-day window, L2 is ineligible and S1 stays unmatched.
+        let windowed = BankrecConfig {
+            many_to_one_date_window_days: Some(3),
+            ..config(0)
+        };
+        let r = run(statements, ledgers, &windowed);
+        assert!(r.matches.iter().all(|m| m.tier != MatchTier::ManyToOne));
+        assert!(r.unmatched_statement.iter().any(|u| u.id == "S1"));
+        assert!(r.unmatched_ledger.iter().any(|u| u.id == "L2"));
+    }
+
+    #[test]
+    fn many_to_one_date_window_boundary_is_inclusive() {
+        // L1 is exactly 3 days before the statement line — at the window
+        // edge, still eligible ("within this many days").
+        let r = run(
+            vec![st("S1", "2026-09-22", "BATCH", 10_000)],
+            vec![
+                ld("L1", "2026-09-19", "A", 6_000),
+                ld("L2", "2026-09-22", "B", 4_000),
+            ],
+            &BankrecConfig {
+                many_to_one_date_window_days: Some(3),
+                ..config(0)
+            },
+        );
+        assert!(r
+            .matches
+            .iter()
+            .any(|m| m.tier == MatchTier::ManyToOne && m.statement_id == "S1"));
     }
 
     // --- stale escalation ---

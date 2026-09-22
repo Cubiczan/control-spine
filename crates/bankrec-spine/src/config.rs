@@ -26,6 +26,10 @@ fn default_candidate_cap() -> u32 {
     100
 }
 
+fn default_date_window_days() -> Option<i64> {
+    None
+}
+
 /// Rule table for a reconciliation run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -48,6 +52,13 @@ pub struct BankrecConfig {
     /// dropped.
     #[serde(default = "default_candidate_cap")]
     pub many_to_one_candidate_cap: u32,
+    /// Optional date-proximity window for many-to-one groups, in days: when
+    /// set, every ledger entry in a group must lie within this many days of
+    /// the statement line's date (in either direction). `None` (the seed
+    /// default) imposes no date constraint — matching is amount- and
+    /// order-driven only.
+    #[serde(default = "default_date_window_days")]
+    pub many_to_one_date_window_days: Option<i64>,
 }
 
 impl BankrecConfig {
@@ -66,6 +77,9 @@ impl BankrecConfig {
         }
         if self.many_to_one_candidate_cap == 0 || self.many_to_one_candidate_cap > 1000 {
             return Err("many_to_one_candidate_cap must be between 1 and 1000".to_string());
+        }
+        if self.many_to_one_date_window_days.is_some_and(|w| w < 0) {
+            return Err("many_to_one_date_window_days must be >= 0 when set".to_string());
         }
         Ok(())
     }
@@ -162,6 +176,23 @@ mod tests {
         let bytes =
             serde_json::to_vec(&json!({ "tolerance_cents": 0, "many_to_one_candidate_cap": 0 }))
                 .unwrap();
+        assert!(matches!(parse_config(&bytes), Err(Error::Config(_))));
+    }
+
+    #[test]
+    fn config_defaults_to_no_date_window() {
+        let bytes = serde_json::to_vec(&json!({ "tolerance_cents": 0 })).unwrap();
+        let config = parse_config(&bytes).unwrap();
+        assert_eq!(config.many_to_one_date_window_days, None);
+    }
+
+    #[test]
+    fn config_rejects_negative_date_window() {
+        let bytes = serde_json::to_vec(&json!({
+            "tolerance_cents": 0,
+            "many_to_one_date_window_days": -1
+        }))
+        .unwrap();
         assert!(matches!(parse_config(&bytes), Err(Error::Config(_))));
     }
 }
