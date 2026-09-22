@@ -1,0 +1,15 @@
+[package]
+name = "bankrec-spine"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Treasury bank reconciliation control spine: tiered statement-to-ledger matching with duplicate detection, stale escalation, and fail-closed evidence packs."
+publish = false
+
+[dependencies]
+spine = { path = "../spine" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+clap = { version = "4", features = ["derive"] }
+thiserror = "2"

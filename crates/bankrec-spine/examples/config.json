@@ -1,0 +1,6 @@
+{
+  "tolerance_cents": 500,
+  "max_group_size": 5,
+  "stale_days": 14,
+  "many_to_one_candidate_cap": 100
+}

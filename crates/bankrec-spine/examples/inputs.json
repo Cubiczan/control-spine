@@ -1,0 +1,16 @@
+{
+  "statement_lines": [
+    { "id": "ST-001", "date": "2026-09-15", "reference": "WIRE-88231", "amount_cents": 12500000 },
+    { "id": "ST-002", "date": "2026-09-16", "reference": "ACH-55102", "amount_cents": -431055 },
+    { "id": "ST-003", "date": "2026-09-17", "reference": "FEE-2026-09", "amount_cents": -8500 },
+    { "id": "ST-004", "date": "2026-09-17", "reference": "FEE-2026-09", "amount_cents": -8500 },
+    { "id": "ST-005", "date": "2026-08-25", "reference": "CHK-100492", "amount_cents": -1600000 }
+  ],
+  "ledger_entries": [
+    { "id": "GL-1001", "date": "2026-09-15", "reference": "WIRE-88231", "side": "debit", "amount_cents": 12500000 },
+    { "id": "GL-1002", "date": "2026-09-16", "reference": "ACH-55102", "side": "credit", "amount_cents": 431050 },
+    { "id": "GL-1003", "date": "2026-09-17", "reference": "FEE-2026-09", "side": "credit", "amount_cents": 8500 },
+    { "id": "GL-1004", "date": "2026-09-17", "reference": "FEE-2026-09", "side": "credit", "amount_cents": 8500 },
+    { "id": "GL-2001", "date": "2026-09-18", "reference": "CHK-100492", "side": "credit", "amount_cents": 1600000 }
+  ]
+}
