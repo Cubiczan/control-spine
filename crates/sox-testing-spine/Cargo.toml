@@ -1,0 +1,15 @@
+[package]
+name = "sox-testing-spine"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Internal Audit control spine: reproducible SOX control testing — seeded sampling, completeness checks, deficiency classification, fail-closed evidence packs."
+publish = false
+
+[dependencies]
+spine = { path = "../spine" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+clap = { version = "4", features = ["derive"] }
