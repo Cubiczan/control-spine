@@ -89,9 +89,10 @@ pub struct EffectivenessCheck {
 /// One CAPA record as consumed by the engine. All timestamps are
 /// caller-supplied data; the engine never reads a clock.
 ///
-/// Input contract: `id` must be unique within the population — findings and
-/// signoff receipts are keyed by subject, so duplicate ids would make
-/// receipts ambiguous.
+/// Enforced invariant: `id` is unique within the population — the engine
+/// refuses a population where an id appears more than once, because findings
+/// and signoff receipts are keyed by subject and one receipt must evidence
+/// exactly one record.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CapaRecord {

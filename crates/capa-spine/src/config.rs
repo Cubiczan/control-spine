@@ -51,7 +51,8 @@ pub struct CapaConfig {
     pub effectiveness_window_days: u64,
 }
 
-/// Config refusal reasons.
+/// Refusal reasons raised fail-closed before any finding is evaluated:
+/// configuration validation and population invariants.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ConfigError {
     #[error("config is not valid JSON: {0}")]
@@ -62,6 +63,10 @@ pub enum ConfigError {
     MissingMatrixCell(String, String),
     #[error("severity matrix ambiguous: duplicate cell for {0} × {1}")]
     DuplicateMatrixCell(String, String),
+    #[error(
+        "population ambiguous: duplicate CAPA id {0} — ids are subject keys for findings and signoff receipts and must be unique"
+    )]
+    DuplicateCapaId(String),
     #[error(
         "aging thresholds invalid: warn_after_days ({warn_after_days}) must be positive and strictly less than breach_after_days ({breach_after_days})"
     )]
