@@ -16,6 +16,14 @@ pub const RULE_FACTOR_MISSING: &str = "GHG-FACTOR-MISSING";
 pub const RULE_SCOPE3_UNMAPPED: &str = "GHG-SCOPE3-UNMAPPED";
 pub const RULE_SCOPE2_DIVERGENCE: &str = "GHG-SCOPE2-DIVERGENCE";
 
+/// In-pack disclosure label carried on every market-based Scope 2 line. The
+/// market-based method models quantity-level contractual coverage only —
+/// residual-mix factors are not modeled (see the crate README, Honest
+/// claims). Carrying the limitation on the line itself keeps the pack
+/// self-describing without the README at hand.
+pub const MARKET_SCOPE2_DISCLOSURE: &str =
+    "market-based scope 2: figure covers contractual instruments only and excludes residual-mix factors";
+
 /// One computed emission line. `factor_version` + `factor` are the lineage
 /// contract: the exact versioned factor row used, recorded per line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,6 +45,10 @@ pub struct EmissionLine {
     pub emission_grams: i64,
     /// Data-quality confidence label from the config tiers.
     pub confidence: String,
+    /// Disclosure label: `Some` only on market-based Scope 2 lines — the
+    /// figure covers contractual instruments only and excludes residual-mix
+    /// factors (see [`MARKET_SCOPE2_DISCLOSURE`]). `None` elsewhere.
+    pub disclosure: Option<String>,
 }
 
 /// A restatement delta for one ledger key: current minus prior. Prior
@@ -512,6 +524,11 @@ fn build_line(
         factor: row.factor,
         emission_grams: emission_grams(&quantity, row)?,
         confidence: confidence_label(record.dq_score, config),
+        disclosure: if method == Some(Method::Market) {
+            Some(MARKET_SCOPE2_DISCLOSURE.to_string())
+        } else {
+            None
+        },
     })
 }
 

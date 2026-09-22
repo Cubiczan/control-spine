@@ -9,7 +9,9 @@
 use ghg_ledger_spine::spine::{
     self, LockState, Signoff, SignoffDecision, VerifyError as SpineVerifyError, SPINE_VERSION,
 };
-use ghg_ledger_spine::{compute, verify, ComputeError, GhgEvidencePack, VerifyRefusal};
+use ghg_ledger_spine::{
+    compute, verify, ComputeError, GhgEvidencePack, VerifyRefusal, MARKET_SCOPE2_DISCLOSURE,
+};
 use serde_json::{json, Value};
 
 fn to_bytes(v: &Value) -> Vec<u8> {
@@ -262,6 +264,94 @@ fn scope2_dual_method_divergence_warns() {
         .findings
         .iter()
         .any(|f| f.rule_id == "GHG-SCOPE2-DIVERGENCE" && f.severity == spine::Severity::Warn));
+}
+
+/// Test anchor: market-based Scope 2 lines carry the in-pack disclosure
+/// label — the figure covers contractual instruments only and excludes
+/// residual-mix factors — while the location-based twin carries none.
+#[test]
+fn market_based_scope2_lines_carry_disclosure() {
+    let mut rec = record("rec-1", "scope2", "grid_electricity", 1000, "kWh");
+    rec["market_covered"] = json!({ "value": 800, "scale": 0 });
+    let pack = compute_ok(&inputs_of(vec![rec]), &base_config());
+    assert_eq!(pack.lines.len(), 2);
+
+    let market = pack
+        .lines
+        .iter()
+        .find(|l| l.method == Some(ghg_ledger_spine::Method::Market))
+        .unwrap();
+    assert_eq!(market.disclosure.as_deref(), Some(MARKET_SCOPE2_DISCLOSURE));
+
+    let location = pack
+        .lines
+        .iter()
+        .find(|l| l.method == Some(ghg_ledger_spine::Method::Location))
+        .unwrap();
+    assert!(location.disclosure.is_none());
+}
+
+/// The disclosure rides the serialized pack: the market-based line's JSON
+/// carries the label verbatim — stating contractual-instrument-only coverage
+/// and the residual-mix exclusion — and other lines serialize without one.
+#[test]
+fn serialized_pack_carries_disclosure_only_on_market_lines() {
+    let mut rec = record("rec-1", "scope2", "grid_electricity", 1000, "kWh");
+    rec["market_covered"] = json!({ "value": 800, "scale": 0 });
+    let pack = compute_ok(&inputs_of(vec![rec]), &base_config());
+
+    let lines = serde_json::to_value(&pack).unwrap()["lines"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let market: Vec<&Value> = lines.iter().filter(|l| l["method"] == "market").collect();
+    assert_eq!(market.len(), 1);
+    let label = market[0]["disclosure"].as_str().unwrap();
+    assert!(label.contains("contractual instruments only"));
+    assert!(label.contains("excludes residual-mix factors"));
+
+    let location: Vec<&Value> = lines.iter().filter(|l| l["method"] == "location").collect();
+    assert_eq!(location.len(), 1);
+    assert!(location[0]["disclosure"].is_null());
+}
+
+/// The label is exclusive to market-based Scope 2: scope 1, scope 2
+/// location, and scope 3 lines carry no disclosure — nothing on other
+/// methods that could read as a market-based disclaimer.
+#[test]
+fn non_market_lines_carry_no_disclosure() {
+    let pack = compute_ok(
+        &inputs_of(vec![
+            record("rec-s1", "scope1", "natural_gas", 2, "MWh"),
+            record("rec-s2", "scope2", "grid_electricity", 500, "kWh"),
+            scope3_record("rec-s3", "purchased_goods", 10, "kg"),
+        ]),
+        &base_config(),
+    );
+    assert!(pack.lines.iter().all(|l| match l.method {
+        Some(ghg_ledger_spine::Method::Market) => l.disclosure.is_some(),
+        _ => l.disclosure.is_none(),
+    }));
+}
+
+/// Fail-closed: editing a disclosure label post-production breaks the body
+/// recompute — verify refuses, like any other tampered line.
+#[test]
+fn verify_refuses_tampered_disclosure() {
+    let mut rec = record("rec-1", "scope2", "grid_electricity", 1000, "kWh");
+    rec["market_covered"] = json!({ "value": 800, "scale": 0 });
+    let inputs = inputs_of(vec![rec]);
+    let mut pack = compute_ok(&inputs, &base_config());
+    let market = pack
+        .lines
+        .iter_mut()
+        .find(|l| l.method == Some(ghg_ledger_spine::Method::Market))
+        .unwrap();
+    market.disclosure = Some("residual mix not involved".to_string());
+    match verify(&pack, &to_bytes(&inputs), &to_bytes(&base_config()), None) {
+        Err(VerifyRefusal::BodyMismatch { what: "lines" }) => {}
+        other => panic!("expected body mismatch on lines, got {other:?}"),
+    }
 }
 
 /// Boundary: divergence exactly at the threshold does not warn (strictly
